@@ -86,9 +86,13 @@ export function DropOverlay({ visible }: { visible: boolean }) {
   return (
     <div className="drop-overlay" aria-hidden>
       <div className="drop-overlay-inner">
-        <Upload size={40} />
-        <div className="drop-overlay-title">{t('queue.dropRelease')}</div>
-        <div className="drop-overlay-sub">{t('queue.dropTypes')}</div>
+        <div className="drop-card">
+          <span className="drop-icon">
+            <Upload size={28} />
+          </span>
+          <div className="drop-overlay-title">{t('queue.dropRelease')}</div>
+          <div className="drop-overlay-sub">{t('queue.dropTypes')}</div>
+        </div>
       </div>
     </div>
   )

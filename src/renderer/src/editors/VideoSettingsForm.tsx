@@ -42,6 +42,9 @@ const RESOLUTIONS = ['3840x2160', '2560x1440', '1920x1080', '1280x720', '854x480
 const FPS_OPTIONS = [23.976, 24, 25, 29.97, 30, 50, 59.94, 60]
 const AUDIO_BITRATES = [64, 96, 128, 160, 192, 256, 320]
 const SAMPLE_RATES = [22050, 44100, 48000, 96000]
+const CRF_MIN = 14
+const CRF_MAX = 35
+const clampCrf = (n: number): number => Math.min(CRF_MAX, Math.max(CRF_MIN, n))
 const DEFAULT_GIF: GifSettings = { fps: 12, width: 480, colors: 256, dither: 'sierra2_4a', loop: 0 }
 
 function fixProfile(codec: VideoCodecId, profile: string | null | undefined): string | null {
@@ -135,6 +138,7 @@ export function VideoSettingsForm({
       )}
 
       <div className="vform-columns">
+        <div className="vform-col">
         <Section title={t('video.format')} icon={FileVideoCamera}>
           <Row label={t('video.container')}>
             <Select value={s.container} onChange={(c) => setContainer(c as OutputContainer)} disabled={disabled} aria-label={t('video.container')}>
@@ -220,23 +224,37 @@ export function VideoSettingsForm({
                   />
                 </Row>
                 {v.rate.mode === 'crf' && (
-                  <Row label={t('video.crf')} hint={t('video.crfHint')} className="row-tall">
+                  <Row label={t('video.crf')} hint={t('video.crfHint')}>
                     <Slider
-                      value={v.rate.crf}
-                      min={14}
-                      max={35}
+                      // Mirrored so that "more quality" is to the right: position = 49 − CRF (CRF 35 … 14).
+                      value={CRF_MIN + CRF_MAX - clampCrf(v.rate.crf)}
+                      min={CRF_MIN}
+                      max={CRF_MAX}
                       step={1}
-                      onChange={(crf) => setV({ rate: { mode: 'crf', crf } })}
-                      format={(n) => `CRF ${n}`}
-                      marks={[
-                        { value: 18, label: t('video.crfLossless') },
-                        { value: 23, label: t('video.crfStandard') },
-                        { value: 28, label: t('video.crfSmall') },
-                      ]}
+                      onChange={(n) => setV({ rate: { mode: 'crf', crf: CRF_MIN + CRF_MAX - n } })}
+                      format={(n) => `CRF ${CRF_MIN + CRF_MAX - n}`}
                       disabled={disabled}
-                      reversed
                       ariaLabel={t('video.crf')}
                     />
+                    <div className="crf-presets" role="group" aria-label={t('video.crf')}>
+                      {([
+                        [18, t('video.crfLossless')],
+                        [23, t('video.crfStandard')],
+                        [28, t('video.crfSmall')],
+                      ] as const).map(([crf, label]) => (
+                        <button
+                          key={crf}
+                          type="button"
+                          className={cx('chip chip-xs', v.rate.mode === 'crf' && v.rate.crf === crf && 'active')}
+                          disabled={disabled}
+                          aria-pressed={v.rate.mode === 'crf' && v.rate.crf === crf}
+                          onClick={() => setV({ rate: { mode: 'crf', crf } })}
+                        >
+                          <span className="chip-num">{crf}</span>
+                          {label}
+                        </button>
+                      ))}
+                    </div>
                   </Row>
                 )}
                 {v.rate.mode !== 'crf' && (
@@ -317,6 +335,22 @@ export function VideoSettingsForm({
           </Section>
         )}
 
+        <Section title={t('video.options')} icon={Settings2}>
+          <Row label="">
+            <div className="stack">
+              <Checkbox
+                checked={!!s.faststart && ['mp4', 'mov', 'm4a'].includes(s.container)}
+                onChange={(faststart) => onChange({ ...s, faststart })}
+                label={t('video.faststart')}
+                title={t('video.faststartHint')}
+                disabled={disabled || !['mp4', 'mov', 'm4a'].includes(s.container)}
+              />
+              <Checkbox checked={!!s.stripMetadata} onChange={(stripMetadata) => onChange({ ...s, stripMetadata })} label={t('video.stripMetadata')} disabled={disabled} />
+            </div>
+          </Row>
+        </Section>
+        </div>
+        <div className="vform-col">
         {!audioOnly && s.container !== 'gif' && (
           <Section title={t('video.frame')} icon={Frame}>
             <Row label={t('video.resolution')}>
@@ -470,21 +504,8 @@ export function VideoSettingsForm({
             <WatermarkEditor value={s.watermark} onChange={(watermark) => onChange({ ...s, watermark })} disabled={disabled || v.codec === 'copy'} />
           </Section>
         )}
+        </div>
 
-        <Section title={t('video.options')} icon={Settings2}>
-          <Row label="">
-            <div className="stack">
-              <Checkbox
-                checked={!!s.faststart && ['mp4', 'mov', 'm4a'].includes(s.container)}
-                onChange={(faststart) => onChange({ ...s, faststart })}
-                label={t('video.faststart')}
-                title={t('video.faststartHint')}
-                disabled={disabled || !['mp4', 'mov', 'm4a'].includes(s.container)}
-              />
-              <Checkbox checked={!!s.stripMetadata} onChange={(stripMetadata) => onChange({ ...s, stripMetadata })} label={t('video.stripMetadata')} disabled={disabled} />
-            </div>
-          </Row>
-        </Section>
       </div>
     </div>
   )

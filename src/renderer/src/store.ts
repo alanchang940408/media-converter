@@ -400,6 +400,29 @@ export function openSettings(tab: SettingsTab = 'general'): void {
   set({ settingsTab: tab })
 }
 
+export function openPreview(jobId: string): void {
+  set({ previewJobId: jobId, editorJobId: null })
+}
+
+export function closePreview(): void {
+  set({ previewJobId: null })
+}
+
+export function openEditor(jobId: string): void {
+  set({ editorJobId: jobId, previewJobId: null })
+}
+
+export function closeEditor(): void {
+  set({ editorJobId: null })
+}
+
+/** Save a preset (new user preset when id is empty or built-in) and refresh the list. */
+export async function savePreset(preset: Preset): Promise<Preset | undefined> {
+  const saved = await guard(() => api.savePreset(preset))
+  if (saved) await refreshPresets()
+  return saved
+}
+
 export function togglePresetBrowser(open?: boolean): void {
   const v = open ?? !get().presetBrowserOpen
   writeBool(LS_BROWSER, v)

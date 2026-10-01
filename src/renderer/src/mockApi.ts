@@ -734,6 +734,11 @@ export function createMockApi(): MediaApi {
     }
   }
 
+  /** The queue stops by itself once nothing is running or waiting (AME behaviour). */
+  function stopIfIdle(): void {
+    if (running && !jobs.some((j) => j.status === 'running' || j.status === 'queued')) running = false
+  }
+
   function tick(): void {
     if (!running) return
     const items: JobProgress[] = []
@@ -743,7 +748,8 @@ export function createMockApi(): MediaApi {
       const info = j.sourceInfo
       const gpu = /nvenc|qsv|amf/.test(j.encoder ?? '')
       const speed = j.kind === 'image' ? 1 : j.encoder === 'none' || j.video?.settings.video.codec === 'none' ? 38 : gpu ? 2.4 + (hashStr(j.id) % 20) / 10 : 0.7 + (hashStr(j.id) % 9) / 10
-      const dur = j.kind === 'image' ? 1.4 : Math.min(80, Math.max(14, (info?.durationSec ?? 60) / speed))
+      // Demo pacing: long enough that the running state stays visible while exploring the UI.
+      const dur = j.kind === 'image' ? 2.5 : Math.min(150, Math.max(30, (info?.durationSec ?? 60) / speed))
       j.progress = Math.min(1, j.progress + 0.25 / dur)
       j.elapsedSec = (j.elapsedSec ?? 0) + 0.25
       j.speed = j.kind === 'video' ? Math.round((speed + Math.sin(Date.now() / 900) * 0.15) * 100) / 100 : undefined
@@ -951,8 +957,9 @@ export function createMockApi(): MediaApi {
       return svgUrl(wrapSvg(scene(hashStr(path), w, h, 3), w, h, maxSize))
     },
     mediaUrl(): string {
-      // An empty blob: the <video> element fires `error`, exercising the frame-scrubber fallback.
-      if (!emptyVideoUrl) emptyVideoUrl = URL.createObjectURL(new Blob([], { type: 'video/mp4' }))
+      // A few bytes that are not a playable file: the <video> element fires `error` (decode failure, no network
+      // error noise), exercising the still-frame scrubber fallback exactly like ProRes/DNxHR in the real app.
+      if (!emptyVideoUrl) emptyVideoUrl = URL.createObjectURL(new Blob([new Uint8Array(64)], { type: 'video/mp4' }))
       return emptyVideoUrl
     },
     async revealInFolder(path: string): Promise<void> {
@@ -1113,6 +1120,7 @@ export function createMockApi(): MediaApi {
       await delay(40)
       jobs = jobs.filter((j) => !ids.includes(j.id))
       schedule()
+      stopIfIdle()
       emitSnapshot()
     },
     async reorderJobs(ids: string[]): Promise<void> {
@@ -1165,6 +1173,7 @@ export function createMockApi(): MediaApi {
         }
       }
       schedule()
+      stopIfIdle()
       emitSnapshot()
     },
     onQueueEvent(cb: (e: QueueEvent) => void): () => void {

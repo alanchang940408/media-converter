@@ -53,8 +53,8 @@ export function Timeline({
     >
       <div className="tl-track" />
       {hasTrim && <div className="tl-range" style={{ left: `${pct(a)}%`, width: `${Math.max(0, pct(b) - pct(a))}%` }} />}
-      {inSec != null && <div className="tl-mark tl-in" style={{ left: `${pct(inSec)}%` }} title={`In ${formatTimecode(inSec, fps)}`} />}
-      {outSec != null && <div className="tl-mark tl-out" style={{ left: `${pct(outSec)}%` }} title={`Out ${formatTimecode(outSec, fps)}`} />}
+      {inSec != null && <div className="tl-mark tl-in" style={{ left: `${pct(inSec)}%` }} title={`${t('preview.in')} ${formatTimecode(inSec, fps)}`} />}
+      {outSec != null && <div className="tl-mark tl-out" style={{ left: `${pct(outSec)}%` }} title={`${t('preview.out')} ${formatTimecode(outSec, fps)}`} />}
       <div className="tl-head" style={{ left: `${pct(time)}%` }} />
     </div>
   )

@@ -47,17 +47,25 @@ export function Thumb({ path, kind, size = 160, className }: { path: string; kin
     const el = ref.current
     if (!el) return
     let alive = true
-    const io = new IntersectionObserver(
-      (entries) => {
-        if (!entries.some((e) => e.isIntersecting)) return
-        io.disconnect()
-        void load(path, size).then((u) => alive && setUrl(u))
-      },
-      { rootMargin: '200px' },
-    )
+    let started = false
+    const start = (): void => {
+      if (started) return
+      started = true
+      io.disconnect()
+      clearTimeout(fallback)
+      void load(path, size).then((u) => alive && setUrl(u))
+    }
+    const io = new IntersectionObserver((entries) => entries.some((e) => e.isIntersecting) && start(), { rootMargin: '200px' })
     io.observe(el)
+    // IntersectionObserver callbacks are frame-driven and can stall while the window is hidden/occluded;
+    // fall back to a geometric visibility check so visible rows still get their thumbnails.
+    const fallback = setTimeout(() => {
+      const r = el.getBoundingClientRect()
+      if (r.bottom > -200 && r.top < window.innerHeight + 200 && r.width > 0) start()
+    }, 500)
     return () => {
       alive = false
+      clearTimeout(fallback)
       io.disconnect()
     }
   }, [key, kind, path, size])

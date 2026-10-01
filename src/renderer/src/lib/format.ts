@@ -1,5 +1,6 @@
 // Small formatting / path helpers for the renderer (no Node imports).
 import type { MediaInfo } from '../../../shared/types'
+import type { TFunc } from '../i18n'
 
 export function formatBytes(n?: number | null): string {
   if (n == null || !Number.isFinite(n)) return '—'
@@ -121,14 +122,14 @@ export function formatLabel(info: MediaInfo): string {
 }
 
 /** "1920×1080 · 00:01:23 · H.264" / "4000×3000 · JPEG · 3.2 MB" / "00:45:10 · PCM · 48 kHz" */
-export function sourceInfoLine(info?: MediaInfo): string {
+export function sourceInfoLine(info?: MediaInfo, t?: TFunc): string {
   if (!info) return ''
   const parts: string[] = []
   if (info.kind === 'image') {
     if (info.width && info.height) parts.push(`${info.width}×${info.height}`)
     const f = formatLabel(info)
     if (f) parts.push(f)
-    if (info.frameCount && info.frameCount > 1) parts.push(`${info.frameCount} fr`)
+    if (info.frameCount && info.frameCount > 1) parts.push(t ? t('media.frames', { n: info.frameCount }) : `${info.frameCount} fr`)
     parts.push(formatBytes(info.sizeBytes))
     return parts.join(' · ')
   }
@@ -142,7 +143,11 @@ export function sourceInfoLine(info?: MediaInfo): string {
   parts.push(formatDuration(info.durationSec))
   if (info.audioCodec) parts.push(codecLabel(info.audioCodec))
   if (info.audioSampleRate) parts.push(`${info.audioSampleRate / 1000} kHz`)
-  if (info.audioChannels) parts.push(info.audioChannels === 1 ? 'mono' : info.audioChannels === 2 ? 'stereo' : `${info.audioChannels} ch`)
+  if (info.audioChannels) {
+    const n = info.audioChannels
+    if (t) parts.push(n === 1 ? t('video.mono') : n === 2 ? t('video.stereo') : t('media.channels', { n }))
+    else parts.push(n === 1 ? 'mono' : n === 2 ? 'stereo' : `${n} ch`)
+  }
   return parts.join(' · ')
 }
 

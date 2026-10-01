@@ -39,6 +39,8 @@ import {
   clearFinished,
   duplicateJobs,
   guard,
+  openEditor,
+  openPreview,
   removeJobs,
   reorderJobs,
   retryJobs,
@@ -203,7 +205,7 @@ function JobList() {
         listRef.current?.querySelector<HTMLElement>(`[data-job="${CSS.escape(id)}"]`)?.scrollIntoView({ block: 'nearest' })
       } else if (e.key === 'Enter' && st.selected.length === 1 && listRef.current?.contains(document.activeElement)) {
         const job = st.jobs.find((j) => j.id === st.selected[0])
-        if (job) useStore.setState(isEditableJob(job) ? { editorJobId: job.id } : { previewJobId: job.id })
+        if (job) (isEditableJob(job) ? openEditor : openPreview)(job.id)
       }
     }
     window.addEventListener('keydown', onKey)
@@ -436,7 +438,7 @@ function JobRow({ job, t, locale, presets, selected, expanded, dropMark, presetT
         onClick={onClick}
         onDoubleClick={(e) => {
           if ((e.target as HTMLElement).closest('button, select, input')) return
-          useStore.setState(editable ? { editorJobId: job.id } : { previewJobId: job.id })
+          (editable ? openEditor : openPreview)(job.id)
         }}
         onDragStart={onDragStart}
         onDragOver={onDragOver}
@@ -451,7 +453,7 @@ function JobRow({ job, t, locale, presets, selected, expanded, dropMark, presetT
             {fileName(job.source)}
           </div>
           <div className="job-sub">
-            <span className="job-info">{sourceInfoLine(job.sourceInfo) || dirName(job.source)}</span>
+            <span className="job-info">{sourceInfoLine(job.sourceInfo, t) || dirName(job.source)}</span>
             {trim && (
               <span className="tag" title={t('job.trimmed')}>
                 <Scissors size={11} aria-hidden /> {formatTimecode(trim.inSec, fps).slice(0, 8)}–{formatTimecode(trim.outSec, fps).slice(0, 8)}
@@ -505,8 +507,8 @@ function JobRow({ job, t, locale, presets, selected, expanded, dropMark, presetT
           <StatusCell job={job} t={t} expanded={expanded} onToggleDetails={onToggleDetails} />
         </div>
         <div className="cell cell-actions" role="gridcell">
-          <IconButton icon={Eye} label={t('job.preview')} onClick={() => useStore.setState({ previewJobId: job.id })} />
-          <IconButton icon={SlidersHorizontal} label={editable ? t('job.edit') : t('job.notEditable')} disabled={!editable} onClick={() => useStore.setState({ editorJobId: job.id })} />
+          <IconButton icon={Eye} label={t('job.preview')} onClick={() => openPreview(job.id)} />
+          <IconButton icon={SlidersHorizontal} label={editable ? t('job.edit') : t('job.notEditable')} disabled={!editable} onClick={() => openEditor(job.id)} />
           {job.status === 'running' || job.status === 'queued' ? (
             <IconButton icon={Square} label={t('job.cancel')} size={13} disabled={job.status === 'queued'} onClick={() => void cancelJobs([job.id])} className={cx(job.status === 'queued' && 'invisible')} />
           ) : (
@@ -657,22 +659,22 @@ function StatusBar() {
             {running && eta != null && c.running ? ` · ${t('job.eta', { eta: formatEta(eta) })}` : ''}
           </span>
         </div>
-        <ProgressBar value={overall} tone={c.failed ? 'error' : undefined} className="sb-bar" />
+        <ProgressBar value={overall} tone={!running && !c.running && !c.queued && total > 0 ? (c.failed ? 'error' : 'ok') : undefined} className="sb-bar" />
       </div>
       <div className="sb-counts">
         <span className="count-chip" title={t('status.queued')}>
           <Clock size={12} aria-hidden /> {c.queued}
           <span className="count-label">{t('status.queued')}</span>
         </span>
-        <span className={cx('count-chip', c.running && 'is-running')} title={t('status.running')}>
-          <LoaderCircle size={12} aria-hidden className={cx(c.running && 'spin')} /> {c.running}
+        <span className={cx('count-chip', c.running > 0 && 'is-running')} title={t('status.running')}>
+          <LoaderCircle size={12} aria-hidden className={cx(c.running > 0 && 'spin')} /> {c.running}
           <span className="count-label">{t('status.running')}</span>
         </span>
         <span className="count-chip ok" title={t('status.done')}>
           <CircleCheck size={12} aria-hidden /> {c.done}
           <span className="count-label">{t('status.done')}</span>
         </span>
-        <span className={cx('count-chip', c.failed && 'err')} title={t('status.failed')}>
+        <span className={cx('count-chip', c.failed > 0 && 'err')} title={t('status.failed')}>
           <CircleAlert size={12} aria-hidden /> {c.failed}
           <span className="count-label">{t('status.failed')}</span>
         </span>

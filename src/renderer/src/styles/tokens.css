@@ -39,6 +39,26 @@
   --header-h: 44px;
   --statusbar-h: 52px;
   --sidebar-w: 300px;
+
+  /* added by ui-shell */
+  --header-bg: #202020;
+  --input-bg: #1d1d1d;
+  --section-bg: #272727;
+  --seg-bg: #1d1d1d;
+  --seg-active: #404040;
+  --row-hover: #2a2a2a;
+  --row-selected: rgba(45, 140, 235, 0.2);
+  --row-selected-hover: rgba(45, 140, 235, 0.26);
+  --row-border: #2e2e2e;
+  --accent-text: #63aef5;
+  --success-soft: rgba(47, 179, 90, 0.15);
+  --warning-soft: rgba(229, 165, 10, 0.14);
+  --scrollbar: #474747;
+  --scrollbar-hover: #5c5c5c;
+  --menu-bg: #2d2d2d;
+  --toast-bg: #2d2d2d;
+  --stage-bg: #141414;
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.35);
 }
 
 :root[data-theme='light'] {
@@ -66,4 +86,24 @@
   --overlay: rgba(20, 20, 30, 0.35);
   --checker-a: #e6e6ea;
   --checker-b: #f6f6f8;
+
+  /* added by ui-shell */
+  --header-bg: #ffffff;
+  --input-bg: #ffffff;
+  --section-bg: #ffffff;
+  --seg-bg: #e8e8ed;
+  --seg-active: #ffffff;
+  --row-hover: #f1f1f5;
+  --row-selected: rgba(31, 122, 224, 0.12);
+  --row-selected-hover: rgba(31, 122, 224, 0.17);
+  --row-border: #e7e7ec;
+  --accent-text: #1a6fd0;
+  --success-soft: rgba(35, 160, 76, 0.12);
+  --warning-soft: rgba(201, 138, 0, 0.13);
+  --scrollbar: #c6c6ce;
+  --scrollbar-hover: #a9a9b3;
+  --menu-bg: #ffffff;
+  --toast-bg: #ffffff;
+  --stage-bg: #e4e4ea;
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.08);
 }
