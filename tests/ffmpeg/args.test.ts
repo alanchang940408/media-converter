@@ -564,6 +564,9 @@ describe('audio', () => {
     expect(build(wav, { info: audioInfo({ audioCodec: 'pcm_f32le' }) }).encoder).toBe('pcm_s24le')
     expect(build(wav, { info: audioInfo({ audioCodec: 'pcm_s16le' }) }).encoder).toBe('pcm_s16le')
     expect(build(wav, { info: audioInfo({ audioCodec: 'mp3' }) }).encoder).toBe('pcm_s16le')
+    // 24-bit FLAC/ALAC sources keep their depth via audioBitDepth
+    expect(build(wav, { info: audioInfo({ audioCodec: 'flac', audioBitDepth: 24 }) }).encoder).toBe('pcm_s24le')
+    expect(build(wav, { info: audioInfo({ audioCodec: 'flac', audioBitDepth: 16 }) }).encoder).toBe('pcm_s16le')
   })
 
   it('audio source into mp4 makes an audio-only file', () => {

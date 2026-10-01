@@ -383,8 +383,11 @@ function audioEncoderName(codec: AudioCodecId, info: MediaInfo): string {
     case 'aac': return 'aac'
     case 'mp3': return 'libmp3lame'
     case 'opus': return 'libopus'
-    // MediaInfo has no bit depth: treat 24/32-bit and float PCM sources as high-resolution.
-    case 'pcm': return /^pcm_(s24|s32|f32|f64)/.test(info.audioCodec ?? '') ? 'pcm_s24le' : 'pcm_s16le'
+    // Keep high-resolution sources (24/32-bit, float, hi-res FLAC/ALAC) at 24-bit; everything else 16-bit.
+    case 'pcm': {
+      const hiRes = (info.audioBitDepth ?? 0) > 16 || /^pcm_(s24|s32|f32|f64)/.test(info.audioCodec ?? '')
+      return hiRes ? 'pcm_s24le' : 'pcm_s16le'
+    }
     case 'flac': return 'flac'
     case 'copy': return 'copy'
     case 'none': return 'none'

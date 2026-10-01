@@ -25,6 +25,8 @@ export interface MediaInfo {
   hasAlpha?: boolean
   audioChannels?: number
   audioSampleRate?: number
+  /** Bits per sample of the source audio (16, 24, 32…), when known. */
+  audioBitDepth?: number
   bitrateKbps?: number
   /** Animated images (gif/webp): number of frames. */
   frameCount?: number

@@ -19,6 +19,9 @@ interface FfprobeStream {
   nb_frames?: string
   channels?: number
   sample_rate?: string
+  sample_fmt?: string
+  bits_per_raw_sample?: string
+  bits_per_sample?: number
   disposition?: { attached_pic?: number }
   tags?: Record<string, string>
   side_data_list?: Array<{ side_data_type?: string; rotation?: number | string }>
@@ -59,6 +62,19 @@ export function streamRotation(s: FfprobeStream): number {
 
 export function pixFmtHasAlpha(pixFmt?: string): boolean {
   return !!pixFmt && /^(yuva|rgba|bgra|argb|abgr|gbrap|ya\d)/.test(pixFmt)
+}
+
+/**
+ * Source sample depth for lossless/PCM audio: bits_per_raw_sample (flac/alac), else bits_per_sample (pcm), else the
+ * sample format. Lossy codecs (aac, mp3, opus…) decode to float, which says nothing about quality → undefined.
+ */
+export function audioBitDepth(s: FfprobeStream): number | undefined {
+  if (!/^(pcm_|flac|alac|wavpack|tta|truehd|mlp)/.test(s.codec_name ?? '')) return undefined
+  const raw = num(s.bits_per_raw_sample) || (s.bits_per_sample ? s.bits_per_sample : undefined)
+  if (raw) return raw
+  const m = /^(s|u)(8|16|32|64)|^(flt|dbl)/.exec(s.sample_fmt ?? '')
+  if (!m) return undefined
+  return m[3] ? (m[3] === 'flt' ? 32 : 64) : Number(m[2])
 }
 
 /** Pure mapping of ffprobe JSON to MediaInfo (exported for tests). */
@@ -109,6 +125,8 @@ export function mapProbe(json: FfprobeOutput, path: string, sizeBytes: number): 
     if (audio.channels) info.audioChannels = audio.channels
     const sr = num(audio.sample_rate)
     if (sr) info.audioSampleRate = sr
+    const depth = audioBitDepth(audio)
+    if (depth) info.audioBitDepth = depth
   }
   return info
 }
