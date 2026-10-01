@@ -13,9 +13,16 @@ export interface NamingVars {
   /** 1-based running number within the batch */
   counter: number
   now: Date
+  /** Photo taken time (EXIF); {exifdate}/{exiftime} fall back to `modified`, then `now`. */
+  taken?: Date
+  /** File modified time ({mdate}); falls back to `now`. */
+  modified?: Date
 }
 
-export const NAME_TOKENS = ['{name}', '{ext}', '{preset}', '{date}', '{time}', '{counter}', '{counter:3}', '{width}', '{height}', '{parent}'] as const
+export const NAME_TOKENS = [
+  '{name}', '{ext}', '{preset}', '{date}', '{time}', '{counter}', '{counter:3}', '{width}', '{height}', '{parent}',
+  '{exifdate}', '{exiftime}', '{mdate}',
+] as const
 
 const pad = (n: number, w = 2): string => String(n).padStart(w, '0')
 
@@ -37,6 +44,10 @@ export function sanitizeFileName(s: string): string {
 /** Render a template like "{name}_{preset}_{counter:3}" into a sanitized file name (no extension). */
 export function renderNameTemplate(template: string, vars: NamingVars): string {
   const d = vars.now
+  const taken = vars.taken ?? vars.modified ?? d
+  const modified = vars.modified ?? d
+  const ymd = (x: Date): string => `${x.getFullYear()}-${pad(x.getMonth() + 1)}-${pad(x.getDate())}`
+  const hms = (x: Date): string => `${pad(x.getHours())}${pad(x.getMinutes())}${pad(x.getSeconds())}`
   const tpl = template && template.trim() ? template : '{name}'
   const rendered = tpl.replace(/\{(\w+)(?::(\d+))?\}/g, (whole, key: string, width?: string) => {
     switch (key) {
@@ -44,8 +55,11 @@ export function renderNameTemplate(template: string, vars: NamingVars): string {
       case 'ext': return vars.ext
       case 'preset': return vars.preset
       case 'parent': return vars.parent
-      case 'date': return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
-      case 'time': return `${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}`
+      case 'date': return ymd(d)
+      case 'time': return hms(d)
+      case 'exifdate': return ymd(taken)
+      case 'exiftime': return hms(taken)
+      case 'mdate': return ymd(modified)
       case 'counter': return width ? pad(vars.counter, Number(width)) : String(vars.counter)
       case 'width': return vars.width != null ? String(vars.width) : ''
       case 'height': return vars.height != null ? String(vars.height) : ''

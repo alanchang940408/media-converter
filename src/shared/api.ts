@@ -8,6 +8,9 @@ import type {
   AppSettings,
   EncoderCapabilities,
   FileKindFilter,
+  FileOpPreviewItem,
+  FileOpUndoInfo,
+  FileOpUndoResult,
   ImageAction,
   ImageOutputSettings,
   ImagePreviewResult,
@@ -78,6 +81,14 @@ export interface MediaApi {
   /** Frame scaled exactly as the preset would scale it, with the preset watermark composited. data: URL. */
   previewVideoFrame(path: string, timeSec: number, settings: VideoPresetSettings, maxWidth?: number): Promise<string>
   previewImage(path: string, actions: ImageAction[], output: ImageOutputSettings, maxSize?: number): Promise<ImagePreviewResult>
+
+  // ── file operations (rename / copy / move jobs) ──
+  /** Dry run: where each queued file job would go right now. Touches nothing. */
+  previewFileOps(jobIds: string[]): Promise<FileOpPreviewItem[]>
+  /** The last undoable move/rename run, or null. */
+  getFileOpUndo(): Promise<FileOpUndoInfo | null>
+  /** Move files back to where they were before the last move/rename run, then forget that run. */
+  undoFileOps(): Promise<FileOpUndoResult>
 
   // ── watch folders ──
   listWatchFolders(): Promise<WatchFolder[]>

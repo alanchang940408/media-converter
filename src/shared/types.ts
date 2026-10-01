@@ -30,6 +30,8 @@ export interface MediaInfo {
   bitrateKbps?: number
   /** Animated images (gif/webp): number of frames. */
   frameCount?: number
+  /** Photos: EXIF DateTimeOriginal (fallback CreateDate) as epoch ms, local wall-clock time. */
+  takenAt?: number
 }
 
 // ───────────────────────────── Overlays / watermark ─────────────────────────────
@@ -277,7 +279,7 @@ export type ImageActionType = ImageAction['type']
 
 // ───────────────────────────── Presets ─────────────────────────────
 
-export type PresetCategory = 'web' | 'social' | 'editing' | 'archive' | 'device' | 'gif' | 'audio' | 'image' | 'custom'
+export type PresetCategory = 'web' | 'social' | 'editing' | 'archive' | 'device' | 'gif' | 'audio' | 'image' | 'file' | 'custom'
 
 interface PresetBase {
   id: string
@@ -302,7 +304,21 @@ export interface ImagePreset extends PresetBase {
   output: ImageOutputSettings
 }
 
-export type Preset = VideoPreset | ImagePreset
+/**
+ * File operations that never touch file contents (batch rename / copy / move). Applies to ANY file type.
+ * copy   → byte-identical copy into the output folder with the templated name
+ * move   → move into the output folder with the templated name
+ * rename → rename in place (output folder is ignored)
+ */
+export type FileOperation = 'copy' | 'move' | 'rename'
+
+export interface FilePreset extends PresetBase {
+  kind: 'file'
+  operation: FileOperation
+}
+
+export type Preset = VideoPreset | ImagePreset | FilePreset
+export type PresetKind = Preset['kind']
 
 // ───────────────────────────── Output / naming ─────────────────────────────
 
@@ -315,10 +331,16 @@ export interface OutputTarget {
    * File name template without extension. Tokens:
    * {name} source base name · {ext} source extension (no dot) · {preset} preset name ·
    * {date} YYYY-MM-DD · {time} HHmmss · {counter} / {counter:3} running number (zero padded) ·
-   * {width} {height} output size · {parent} source parent folder name
+   * {width} {height} output size · {parent} source parent folder name ·
+   * {exifdate} YYYY-MM-DD / {exiftime} HHmmss photo taken (fallback: file modified) · {mdate} file modified YYYY-MM-DD
    */
   nameTemplate: string
   conflict: ConflictPolicy
+  /**
+   * Only when `dir` is set: recreate the job's `relativeDir` below `dir` (keeps the subfolder layout of an added folder
+   * or a watch folder). Missing (older queue/preset data) = false.
+   */
+  preserveStructure?: boolean
 }
 
 // ───────────────────────────── Jobs / queue ─────────────────────────────
@@ -327,9 +349,15 @@ export type JobStatus = 'queued' | 'running' | 'done' | 'failed' | 'cancelled' |
 
 export interface Job {
   id: string
-  kind: 'video' | 'image'
+  /** 'file' = rename / copy / move without touching contents (any file type). */
+  kind: 'video' | 'image' | 'file'
   /** Absolute source path. */
   source: string
+  /**
+   * Folder of the source relative to the folder the user added (or the watch folder), using the OS separator;
+   * '' when the file sits directly in that folder; undefined when the file was added on its own.
+   */
+  relativeDir?: string
   sourceInfo?: MediaInfo
   presetId: string
   /** Preset display name snapshot at add time (already localised by main using current locale). */
@@ -338,6 +366,8 @@ export interface Job {
   video?: { settings: VideoPresetSettings; trim?: Trim | null }
   /** Present when kind === 'image'. */
   image?: { actions: ImageAction[]; output: ImageOutputSettings }
+  /** Present when kind === 'file'. */
+  file?: { operation: FileOperation }
   output: OutputTarget
   /** Final resolved output path (set when the job starts). */
   outputPath?: string
@@ -367,6 +397,7 @@ export interface JobPatch {
   presetId?: string
   video?: { settings?: VideoPresetSettings; trim?: Trim | null }
   image?: { actions?: ImageAction[]; output?: ImageOutputSettings }
+  file?: { operation?: FileOperation }
   output?: Partial<OutputTarget>
 }
 
@@ -393,9 +424,19 @@ export type QueueEvent =
   | { type: 'finished'; summary: { done: number; failed: number; cancelled: number; skipped: number } }
 
 export interface AddJobsRequest {
-  /** Files and/or folders. Folders are expanded (recursively if `recursive`). Unsupported files are ignored and reported. */
+  /**
+   * Files and/or folders. Folders are expanded (recursively if `recursive`) in natural name order (2 before 10), which
+   * also defines {counter}. Unsupported files are ignored and reported — except in file mode, which accepts every file.
+   */
   paths: string[]
   recursive?: boolean
+  /**
+   * File mode: when set, EVERY file (any type, hidden/system files and our temp files excluded) becomes a 'file' job with
+   * this FilePreset; videoPresetId / imagePresetId / imageOverride are ignored.
+   */
+  filePresetId?: string | null
+  /** Sort order used for expansion and {counter}. Default 'name'. */
+  sortBy?: 'name' | 'modified' | 'taken'
   /** Preset applied to video & audio sources (null → settings.lastVideoPresetId). */
   videoPresetId?: string | null
   /** Preset applied to image sources (null → settings.lastImagePresetId). */
@@ -410,6 +451,37 @@ export interface AddJobsResult {
   jobs: Job[]
   /** Paths that were ignored (unsupported type, unreadable). */
   ignored: string[]
+}
+
+// ───────────────────────────── File operations (rename / copy / move) ─────────────────────────────
+
+/** One row of the "old name → new name" table shown before file jobs run. Computed without touching any file. */
+export interface FileOpPreviewItem {
+  jobId: string
+  source: string
+  /** Resolved destination (null when status is 'skip'). */
+  target: string | null
+  /**
+   * ok        → target is free
+   * renamed   → name was taken, " (n)" appended (conflict 'rename')
+   * overwrite → an existing file will be replaced (conflict 'overwrite')
+   * skip      → name taken and conflict 'skip'
+   * unchanged → target equals the source (nothing to do)
+   */
+  status: 'ok' | 'renamed' | 'overwrite' | 'skip' | 'unchanged'
+}
+
+/** The most recent run of move/rename jobs that can be undone (copies are not journaled — delete them instead). */
+export interface FileOpUndoInfo {
+  id: string
+  finishedAt: number
+  count: number
+  operations: { move: number; rename: number }
+}
+
+export interface FileOpUndoResult {
+  restored: number
+  failed: { path: string; error: string }[]
 }
 
 // ───────────────────────────── Watch folders ─────────────────────────────
@@ -447,6 +519,9 @@ export interface AppSettings {
   preferredHw: HwAccel
   lastVideoPresetId: string
   lastImagePresetId: string
+  lastFilePresetId: string
+  /** Default for OutputTarget.preserveStructure when folders are added with an output folder. */
+  preserveStructure: boolean
   notifyOnFinish: boolean
   /** Keep the computer awake while the queue is encoding. */
   preventSleep: boolean
