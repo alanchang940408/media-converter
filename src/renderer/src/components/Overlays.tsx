@@ -18,6 +18,18 @@ export function Toasts() {
             <div className="toast-text">{x.text}</div>
             {x.detail && <div className="toast-detail">{x.detail}</div>}
           </div>
+          {x.action && (
+            <button
+              type="button"
+              className="toast-action"
+              onClick={() => {
+                dismissToast(x.id)
+                x.action!.run()
+              }}
+            >
+              {x.action.label}
+            </button>
+          )}
           <button type="button" className="toast-close" onClick={() => dismissToast(x.id)} aria-label={t('common.close')} title={t('common.close')}>
             <X size={14} aria-hidden />
           </button>
@@ -82,6 +94,7 @@ export function DialogHost() {
 
 export function DropOverlay({ visible }: { visible: boolean }) {
   const t = useT()
+  const fileOps = useStore((s) => !!s.fileOps)
   if (!visible) return null
   return (
     <div className="drop-overlay" aria-hidden>
@@ -90,8 +103,8 @@ export function DropOverlay({ visible }: { visible: boolean }) {
           <span className="drop-icon">
             <Upload size={28} />
           </span>
-          <div className="drop-overlay-title">{t('queue.dropRelease')}</div>
-          <div className="drop-overlay-sub">{t('queue.dropTypes')}</div>
+          <div className="drop-overlay-title">{fileOps ? t('fileops.dropRelease') : t('queue.dropRelease')}</div>
+          <div className="drop-overlay-sub">{fileOps ? t('fileops.dropTypes') : t('queue.dropTypes')}</div>
         </div>
       </div>
     </div>

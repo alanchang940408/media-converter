@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { t } from '../../src/main/i18n'
 import { JsonStore } from '../../src/main/jsonStore'
 import { emptyPresetFile, PresetStore, type PresetFile } from '../../src/main/presets/store'
 import {
@@ -18,12 +19,14 @@ const AWF = { stabilityThreshold: 200, pollInterval: 50 }
 
 class FakeQueue implements WatchQueue {
   readonly requests: AddJobsRequest[] = []
+  readonly internals: ({ relativeDir?: string } | undefined)[] = []
   readonly jobs: Job[] = []
   private listeners = new Set<(job: Job) => void>()
   private seq = 0
 
-  async addJobs(req: AddJobsRequest): Promise<AddJobsResult> {
+  async addJobs(req: AddJobsRequest, internal?: { relativeDir?: string }): Promise<AddJobsResult> {
     this.requests.push(structuredClone(req))
+    this.internals.push(internal ? { ...internal } : undefined)
     const job: Job = {
       id: `job-${++this.seq}`,
       kind: req.imagePresetId ? 'image' : 'video',
@@ -127,7 +130,9 @@ describe('WatchManager', () => {
     for (const r of q.requests) {
       expect(r.watchFolderId).toBe(f.id)
       expect(r.output?.dir).toBe(join(watched, 'Output'))
+      expect(r.output?.preserveStructure).toBe(true)
     }
+    expect(q.internals.every((i) => i?.relativeDir === '')).toBe(true)
   })
 
   it('ignores the output folder, Source, temp files, unsupported files and subfolders (depth 0)', async () => {
@@ -152,17 +157,49 @@ describe('WatchManager', () => {
     await waitFor(() => q.requests.length === 2, 8000, 'real file')
   })
 
-  it('includeSubfolders mirrors the relative folder into the output folder', async () => {
+  it('includeSubfolders passes the folder relative to the watch folder and keeps the structure', async () => {
     const q = new FakeQueue()
     const out = join(tmp.dir, 'custom out')
     const m = makeManager(q)
     await m.start()
     await m.save(folder({ includeSubfolders: true, outputDir: out, presetIds: ['img-png'] }))
     await m.whenReady()
-    mkdirSync(join(watched, 'day 1'), { recursive: true })
-    touch(join(watched, 'day 1', 'a.png'))
+    mkdirSync(join(watched, 'day 1', '下午'), { recursive: true })
+    touch(join(watched, 'day 1', '下午', 'a.png'))
     await waitFor(() => q.requests.length === 1, 8000, 'nested file')
-    expect(q.requests[0].output?.dir).toBe(join(out, 'day 1'))
+    expect(q.requests[0].output).toMatchObject({ dir: out, preserveStructure: true })
+    expect(q.internals[0]).toEqual({ relativeDir: join('day 1', '下午') })
+  })
+
+  it('rejects rename / copy / move presets', async () => {
+    const m = makeManager(new FakeQueue())
+    await m.start()
+    await expect(m.save(folder({ presetIds: ['h264-match', 'file-copy-rename'] }))).rejects.toThrow(t('error.filePresetInWatch'))
+    expect(m.list()).toHaveLength(0)
+  })
+
+  it('real queue: nested files land in the same subfolder below Output', async () => {
+    const h = makeHarness(tmp.dir)
+    const s = stores(tmp.dir)
+    const m = new WatchManager({ queue: h.queue, presets: h.presets, folders: s.folders, processed: s.processed, awaitWriteFinish: AWF })
+    managers.push(m)
+    await m.start()
+    await m.save(folder({ includeSubfolders: true, presetIds: ['img-png'] }))
+    await m.whenReady()
+    mkdirSync(join(watched, 'trip 旅行', 'day 2'), { recursive: true })
+    touch(join(watched, 'trip 旅行', 'day 2', 'pic.jpg'))
+    touch(join(watched, 'top.jpg'))
+    const nested = join(watched, 'Output', 'trip 旅行', 'day 2', 'pic.png')
+    await waitFor(() => existsSync(nested) && existsSync(join(watched, 'Output', 'top.png')), 10000, 'outputs')
+    const jobs = h.queue.getJobs()
+    expect(jobs.find((j) => j.source.endsWith('pic.jpg'))).toMatchObject({
+      relativeDir: join('trip 旅行', 'day 2'),
+      output: { dir: join(watched, 'Output'), preserveStructure: true },
+      outputPath: nested,
+    })
+    expect(jobs.find((j) => j.source.endsWith('top.jpg'))?.relativeDir).toBe('')
+    await m.close()
+    await h.queue.shutdown()
   })
 
   it('tracks processed files so a restart never reprocesses them', async () => {

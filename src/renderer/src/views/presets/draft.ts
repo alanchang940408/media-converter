@@ -5,9 +5,9 @@ import { validateVideoSettings } from '../../../../shared/videoRules'
 import { api } from '../../api'
 import { confirmDialog, guard, refreshPresets, selectLocale, toast, tNow, useStore } from '../../store'
 import type { MessageKey } from '../../i18n'
-import { clone, newImagePreset, newVideoPreset, presetDescription, presetName } from '../../lib/presets'
+import { clone, newFilePreset, newImagePreset, newVideoPreset, presetDescription, presetName } from '../../lib/presets'
 
-export type PresetKind = 'video' | 'image'
+export type PresetKind = 'video' | 'image' | 'file'
 export type PresetFilter = 'all' | 'builtIn' | 'mine'
 
 export interface PresetDraftState {
@@ -37,6 +37,7 @@ const get = usePresetDraft.getState
 
 export const VIDEO_CATEGORIES: PresetCategory[] = ['web', 'social', 'editing', 'archive', 'device', 'gif', 'audio', 'custom']
 export const IMAGE_CATEGORIES: PresetCategory[] = ['image', 'web', 'social', 'archive', 'custom']
+export const FILE_CATEGORIES: PresetCategory[] = ['file', 'custom']
 
 /** JSON with sorted keys, so key order / undefined fields never count as a change. */
 export function stableStringify(v: unknown): string {
@@ -75,7 +76,7 @@ export function draftIssues(p: Preset | null, locale = selectLocale(useStore.get
   if (!presetName(p, locale).trim()) issues.push({ level: 'error', key: 'presetsView.issueName' })
   if (p.kind === 'video') {
     if (missingLogo(p.settings.watermark)) issues.push({ level: 'error', key: 'presetsView.issueLogo' })
-  } else {
+  } else if (p.kind === 'image') {
     if (p.actions.some((a: ImageAction) => a.enabled && a.type === 'watermark' && missingLogo(a.watermark))) issues.push({ level: 'error', key: 'presetsView.issueLogo' })
     if (!p.actions.some((a) => a.enabled) && p.output.format === 'keep') issues.push({ level: 'warning', key: 'presetsView.issueNoop' })
   }
@@ -125,7 +126,7 @@ export function ensureSelection(): void {
     return
   }
   const list = presetsOfKind(s.kind)
-  const last = s.kind === 'video' ? settings.lastVideoPresetId : settings.lastImagePresetId
+  const last = s.kind === 'video' ? settings.lastVideoPresetId : s.kind === 'image' ? settings.lastImagePresetId : settings.lastFilePresetId
   const pick = list.find((p) => p.id === last) ?? list[0]
   if (pick) load(pick)
   else set({ selectedId: null, draft: null, baseline: '' })
@@ -164,7 +165,12 @@ export function revertDraft(): void {
 export async function newPreset(): Promise<void> {
   if (!(await confirmDiscard())) return
   const kind = get().kind
-  const draft = kind === 'video' ? newVideoPreset(tNow('presetsView.newVideoName')) : newImagePreset(tNow('presetsView.newImageName'))
+  const draft =
+    kind === 'video'
+      ? newVideoPreset(tNow('presetsView.newVideoName'))
+      : kind === 'image'
+        ? newImagePreset(tNow('presetsView.newImageName'))
+        : newFilePreset(tNow('presetsView.newFileName'))
   set({ selectedId: null, draft, baseline: '' })
 }
 

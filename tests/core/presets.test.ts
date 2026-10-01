@@ -2,8 +2,8 @@ import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { JsonStore } from '../../src/main/jsonStore'
 import { BUILTIN_PRESETS, getBuiltinPreset } from '../../src/main/presets/builtin'
-import { emptyPresetFile, parsePresetFile, PresetStore, type PresetFile } from '../../src/main/presets/store'
-import type { ImagePreset, Preset, VideoPreset } from '../../src/shared/types'
+import { emptyPresetFile, normalizePreset, parsePresetFile, PresetStore, type PresetFile } from '../../src/main/presets/store'
+import type { FilePreset, ImagePreset, Preset, VideoPreset } from '../../src/shared/types'
 import { validateVideoSettings } from '../../src/shared/videoRules'
 import { makeTempDir } from './helpers'
 
@@ -36,6 +36,11 @@ describe('built-in presets', () => {
   it('has every required id with the right kind, localized names and valid settings', () => {
     expect(BUILTIN_PRESETS.filter((p) => p.kind === 'video').map((p) => p.id)).toEqual(VIDEO_IDS)
     expect(BUILTIN_PRESETS.filter((p) => p.kind === 'image').map((p) => p.id)).toEqual(IMAGE_IDS)
+    expect(BUILTIN_PRESETS.filter((p) => p.kind === 'file').map((p) => [p.id, (p as FilePreset).operation, p.category])).toEqual([
+      ['file-copy-rename', 'copy', 'file'],
+      ['file-rename', 'rename', 'file'],
+      ['file-move-rename', 'move', 'file'],
+    ])
     for (const p of BUILTIN_PRESETS) {
       expect(p.builtIn).toBe(true)
       expect(p.names?.['zh-TW'] && p.names?.en && p.names?.ja).toBeTruthy()
@@ -156,5 +161,40 @@ describe('PresetStore', () => {
     const mixed = { ...bad, presets: [...bad.presets, { ...structuredClone(getBuiltinPreset('img-png')), name: 'ok' }] }
     const res = presets.importJson(JSON.stringify(mixed))
     expect(res.map((p) => p.name)).toEqual(['ok'])
+  })
+})
+
+describe('file presets in the store', () => {
+  it('saving a built-in file preset creates a user copy in the file category', () => {
+    const builtin = getBuiltinPreset('file-rename') as FilePreset
+    const saved = presets.save({ ...structuredClone(builtin), operation: 'move' }) as FilePreset
+    expect(saved).toMatchObject({ kind: 'file', operation: 'move', category: 'file', builtIn: false, name: '原地重新命名（副本）' })
+    expect(saved.id).toMatch(/^user-/)
+    expect((presets.get('file-rename') as FilePreset).operation).toBe('rename')
+  })
+
+  it('validates the operation and keeps the file category exclusive to file presets', () => {
+    expect(normalizePreset({ kind: 'file', name: 'x', operation: 'delete' })).toBeNull()
+    expect(normalizePreset({ kind: 'file', name: 'x' })).toBeNull()
+    expect(normalizePreset({ kind: 'file', name: ' Mine ', operation: 'copy', category: 'web' })).toMatchObject({
+      kind: 'file',
+      name: 'Mine',
+      operation: 'copy',
+      category: 'file',
+    })
+    const video = structuredClone(getBuiltinPreset('h264-720p') as VideoPreset)
+    expect(normalizePreset({ ...video, category: 'file' })?.category).toBe('custom')
+  })
+
+  it('exports and imports file presets', () => {
+    const json = presets.exportJson(['file-move-rename'])
+    const data = JSON.parse(json) as { presets: Preset[] }
+    expect(data.presets[0]).toMatchObject({ kind: 'file', operation: 'move', builtIn: false, name: '移動並重新命名' })
+    const [imported] = presets.importJson(json) as FilePreset[]
+    expect(imported).toMatchObject({ kind: 'file', operation: 'move', category: 'file' })
+    expect(imported.id).not.toBe('file-move-rename')
+    // a file whose only preset is broken is rejected
+    const bad = JSON.stringify({ app: 'media-converter', version: 1, presets: [{ kind: 'file', name: 'bad', operation: 'zip' }] })
+    expect(() => presets.importJson(bad)).toThrow()
   })
 })

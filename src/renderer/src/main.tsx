@@ -9,6 +9,7 @@ import './styles/queue.css'
 import './styles/editors.css'
 import './styles/modals.css'
 import './styles/views.css'
+import './styles/fileops.css'
 import { ensureApi } from './api'
 import { App } from './App'
 

@@ -14,6 +14,7 @@ import { imageEngine } from './image'
 import { registerIpc, sendExternalFiles, sendQueueEvent } from './ipc'
 import { emptyPresetFile, parsePresetFile, PresetStore } from './presets/store'
 import { handleMediaProtocol, registerMediaScheme } from './protocol'
+import { emptyJournal, parseJournal, type FileOpJournal } from './queue/journal'
 import { emptyQueue, Queue, type PersistedQueue } from './queue/Queue'
 import { defaultSettings, sanitizeSettings, SettingsManager } from './settings'
 import { ThumbnailService } from './thumbnails'
@@ -254,6 +255,7 @@ async function startApp(): Promise<void> {
     }),
     settings,
     presets,
+    journal: openStore<FileOpJournal>('file-ops-journal.json', emptyJournal, { parse: parseJournal }),
     getCapabilities: () => caps.get(),
     tmpDir: join(tmpdir(), 'media-converter', String(process.pid)),
     effects: {

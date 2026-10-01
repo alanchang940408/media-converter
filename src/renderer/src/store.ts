@@ -5,6 +5,7 @@ import type {
   AppInfo,
   AppSettings,
   EncoderCapabilities,
+  FileOpUndoInfo,
   Job,
   JobPatch,
   Locale,
@@ -13,17 +14,29 @@ import type {
   WatchFolder,
 } from '../../shared/types'
 import { api } from './api'
-import { makeT, type MessageKey, type TFunc } from './i18n'
+import { LOCALE_HTML_LANG as LOCALE_TAGS, makeT, type MessageKey, type TFunc } from './i18n'
 import { fileName } from './lib/format'
 
 export type View = 'queue' | 'presets' | 'watch'
 export type SettingsTab = 'general' | 'output' | 'performance' | 'about'
+
+export interface ToastAction {
+  label: string
+  run: () => void
+}
 
 export interface Toast {
   id: number
   kind: 'info' | 'success' | 'error'
   text: string
   detail?: string
+  action?: ToastAction
+}
+
+/** A file or folder chosen in the batch rename / copy / move dialog. */
+export interface FileOpsEntry {
+  path: string
+  isFolder: boolean
 }
 
 export interface DialogRequest {
@@ -49,6 +62,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
   preferredHw: 'auto',
   lastVideoPresetId: '',
   lastImagePresetId: '',
+  lastFilePresetId: '',
+  preserveStructure: true,
   notifyOnFinish: true,
   preventSleep: true,
   removeFinished: false,
@@ -75,6 +90,10 @@ export interface AppState {
   presetBrowserOpen: boolean
   toasts: Toast[]
   dialog: DialogRequest | null
+  /** Batch rename / copy / move dialog: open while non-null, holds the chosen files and folders. */
+  fileOps: { entries: FileOpsEntry[] } | null
+  /** Last move/rename run that can be undone (null when none, or when main does not support it). */
+  fileOpUndo: FileOpUndoInfo | null
 }
 
 const LS_BROWSER = 'mc-preset-browser-open'
@@ -116,6 +135,8 @@ export const useStore = create<AppState>(() => ({
   presetBrowserOpen: readBool(LS_BROWSER, true),
   toasts: [],
   dialog: null,
+  fileOps: null,
+  fileOpUndo: null,
 }))
 
 const set = useStore.setState
@@ -146,10 +167,10 @@ export function tNow(key: MessageKey, params?: Record<string, string | number>):
 
 let toastSeq = 0
 
-export function toast(kind: Toast['kind'], text: string, detail?: string): void {
+export function toast(kind: Toast['kind'], text: string, detail?: string, action?: ToastAction): void {
   const id = ++toastSeq
-  set((s) => ({ toasts: [...s.toasts.slice(-4), { id, kind, text, detail }] }))
-  setTimeout(() => dismissToast(id), kind === 'error' ? 8000 : 4000)
+  set((s) => ({ toasts: [...s.toasts.slice(-4), { id, kind, text, detail, action }] }))
+  setTimeout(() => dismissToast(id), action ? 12000 : kind === 'error' ? 8000 : 4000)
 }
 
 export function dismissToast(id: number): void {
@@ -221,6 +242,7 @@ function onQueueEvent(e: QueueEvent): void {
   } else if (e.type === 'finished') {
     const { done, failed, cancelled, skipped } = e.summary
     toast(failed ? 'error' : 'success', tNow('toast.queueFinished', { done, failed }), cancelled || skipped ? tNow('toast.queueFinishedExtra', { cancelled, skipped }) : undefined)
+    void refreshFileOpUndo(true)
   }
 }
 
@@ -241,13 +263,14 @@ export async function init(): Promise<() => void> {
       api.getQueue(),
       api.listWatchFolders(),
     ])
-    set({ appInfo, settings, presets, watchFolders, ready: true })
+    set({ appInfo, settings: { ...DEFAULT_SETTINGS, ...settings }, presets, watchFolders, ready: true })
     setJobs(queue.jobs, queue.running)
   } catch (err) {
     console.error(err)
     set({ ready: true, loadError: errorText(err) })
   }
   void refreshCaps(false)
+  void refreshFileOpUndo(false)
   return () => unsubs.forEach((u) => u())
 }
 
@@ -378,12 +401,114 @@ export async function stopQueue(): Promise<void> {
 
 export async function setJobsOutputDir(ids: string[], dir: string | null): Promise<void> {
   let changed = 0
+  const { jobs, settings } = get()
   for (const id of ids) {
-    const r = await guard(() => api.updateJob(id, { output: { dir } }), 'toast.updateFailed')
+    const job = jobs.find((j) => j.id === id)
+    // Jobs that never had a folder pick up the "keep folder structure" default when they get one.
+    const output: JobPatch['output'] = dir && job && job.output.preserveStructure == null ? { dir, preserveStructure: settings.preserveStructure } : { dir }
+    const r = await guard(() => api.updateJob(id, { output }), 'toast.updateFailed')
     if (r) changed++
   }
   await refreshQueue()
   if (changed) toast('success', tNow('toast.outputChanged', { n: changed }))
+}
+
+export async function setJobsPreserveStructure(ids: string[], preserveStructure: boolean): Promise<void> {
+  for (const id of ids) await guard(() => api.updateJob(id, { output: { preserveStructure } }), 'toast.updateFailed')
+  await refreshQueue()
+}
+
+// ───────────────────────────── file operations (batch rename / copy / move) ─────────────────────────────
+
+export function openFileOps(entries: FileOpsEntry[] = []): void {
+  set({ fileOps: { entries: dedupeEntries(entries) }, editorJobId: null, previewJobId: null })
+}
+
+export function closeFileOps(): void {
+  set({ fileOps: null })
+}
+
+function dedupeEntries(list: FileOpsEntry[]): FileOpsEntry[] {
+  const seen = new Set<string>()
+  return list.filter((e) => {
+    const k = e.path.toLowerCase()
+    if (seen.has(k)) return false
+    seen.add(k)
+    return true
+  })
+}
+
+export function addFileOpsEntries(entries: FileOpsEntry[]): void {
+  set((s) => (s.fileOps ? { fileOps: { entries: dedupeEntries([...s.fileOps.entries, ...entries]) } } : {}))
+}
+
+export function removeFileOpsEntry(path: string): void {
+  set((s) => (s.fileOps ? { fileOps: { entries: s.fileOps.entries.filter((e) => e.path !== path) } } : {}))
+}
+
+export function clearFileOpsEntries(): void {
+  set((s) => (s.fileOps ? { fileOps: { entries: [] } } : {}))
+}
+
+/**
+ * Reload the undo journal info. With `announce`, a run that produced a new journal entry shows a toast with
+ * an Undo button. Errors are ignored quietly (older main processes do not have the method).
+ */
+export async function refreshFileOpUndo(announce: boolean): Promise<void> {
+  const prev = get().fileOpUndo
+  let info: FileOpUndoInfo | null = null
+  try {
+    info = await api.getFileOpUndo()
+  } catch (err) {
+    console.warn('getFileOpUndo failed', err)
+    info = null
+  }
+  set({ fileOpUndo: info })
+  if (announce && info && info.id !== prev?.id) {
+    toast('success', tNow('fileop.undoToast', { n: info.count }), fileOpUndoDetail(info), { label: tNow('fileop.undoAction'), run: () => void undoLastFileOp() })
+  }
+}
+
+function fileOpUndoDetail(info: FileOpUndoInfo): string {
+  const parts: string[] = []
+  if (info.operations.rename) parts.push(tNow('fileop.undoRenamed', { n: info.operations.rename }))
+  if (info.operations.move) parts.push(tNow('fileop.undoMoved', { n: info.operations.move }))
+  return parts.join(' · ')
+}
+
+let undoing = false
+
+export async function undoLastFileOp(): Promise<void> {
+  const info = get().fileOpUndo
+  if (!info || undoing) return
+  const time = new Date(info.finishedAt).toLocaleTimeString(LOCALE_TAGS[selectLocale(get())], { hour: '2-digit', minute: '2-digit' })
+  const ok = await confirmDialog({
+    title: tNow('fileop.undoConfirmTitle', { n: info.count }),
+    message: tNow('fileop.undoConfirmBody', { n: info.count, time, detail: fileOpUndoDetail(info) }),
+    confirmLabel: tNow('fileop.undoConfirm'),
+  })
+  if (!ok) return
+  undoing = true
+  try {
+    const res = await guard(() => api.undoFileOps(), 'fileop.undoFailed')
+    if (res) {
+      const failed = res.failed.length
+      if (!failed) toast('success', tNow('fileop.undoDone', { n: res.restored }))
+      else
+        toast(
+          'error',
+          tNow('fileop.undoPartial', { n: res.restored, failed }),
+          res.failed
+            .slice(0, 5)
+            .map((f) => `${fileName(f.path)}: ${f.error}`)
+            .join('\n') + (failed > 5 ? '\n…' : ''),
+        )
+    }
+  } finally {
+    undoing = false
+  }
+  await refreshFileOpUndo(false)
+  await refreshQueue()
 }
 
 // ───────────────────────────── selection / navigation ─────────────────────────────

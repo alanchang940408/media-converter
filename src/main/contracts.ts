@@ -120,7 +120,13 @@ export interface WatermarkLayer {
 }
 
 export interface ImageEngine {
+  /** Includes `takenAt` (EXIF DateTimeOriginal, local wall clock) when the photo has one. */
   probe(path: string): Promise<MediaInfo>
+  /**
+   * EXIF taken time of ANY file (epoch ms, local wall clock) without decoding it — header read only.
+   * undefined when there is none (non-photos, stripped metadata). Never throws.
+   */
+  readTakenAt(path: string): Promise<number | undefined>
   /** Extension (no dot) the output will have, e.g. "jpg", "png", "webp". Resolves format 'keep' against the source. */
   outputExtension(output: ImageOutputSettings, sourcePath: string): string
   process(req: ImageProcessRequest): Promise<ImageProcessResult>

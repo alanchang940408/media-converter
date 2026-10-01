@@ -1,4 +1,5 @@
 // Multi-select popover listing video + image presets with checkboxes (stays open while toggling).
+// File-operation presets (rename / copy / move) are never offered: watch folders only convert.
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import { createPortal } from 'react-dom'
 import { Film, Image as ImageIcon, Search, X } from 'lucide-react'

@@ -578,7 +578,7 @@ export const zhTW: Record<keyof typeof en, string> = {
   'editor.outputTarget': '輸出',
   'editor.outputFolder': '資料夾',
   'editor.fileName': '檔名',
-  'editor.fileNameHint': '可用代碼：{name} {preset} {date} {time} {counter} {width} {height} {parent}',
+  'editor.fileNameHint': '可用代碼：{name} {preset} {date} {time} {counter} {width} {height} {parent} {exifdate} {exiftime} {mdate}',
   'editor.conflict': '檔案已存在時',
   'editor.trim': '修剪',
   'editor.trimRange': '{in} – {out} · {dur}',

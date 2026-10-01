@@ -1,5 +1,7 @@
 // Preset helpers: display names, grouping, compatibility, defaults.
 import type {
+  FileOperation,
+  FilePreset,
   ImageAction,
   ImageActionType,
   ImageOutputSettings,
@@ -15,7 +17,7 @@ import type {
 import { isAudioOnlyContainer } from '../../../shared/videoRules'
 import { uid } from './format'
 
-export const CATEGORY_ORDER: PresetCategory[] = ['web', 'social', 'editing', 'archive', 'device', 'gif', 'audio', 'image', 'custom']
+export const CATEGORY_ORDER: PresetCategory[] = ['file', 'web', 'social', 'editing', 'archive', 'device', 'gif', 'audio', 'image', 'custom']
 
 export function presetName(p: Pick<Preset, 'name' | 'names'>, locale: Locale): string {
   return p.names?.[locale] ?? p.name
@@ -31,6 +33,7 @@ export function isAudioPreset(p: Preset): boolean {
 
 /** Presets that can be applied to a job (audio sources only get audio-only presets). */
 export function isPresetCompatible(job: Job, p: Preset): boolean {
+  if (job.kind === 'file') return p.kind === 'file'
   if (job.kind === 'image') return p.kind === 'image'
   if (p.kind !== 'video') return false
   if (job.sourceInfo?.kind === 'audio') return isAudioPreset(p)
@@ -102,6 +105,10 @@ export function newImagePreset(name: string): ImagePreset {
     actions: [newAction('resize')],
     output: defaultImageOutput(),
   }
+}
+
+export function newFilePreset(name: string, operation: FileOperation = 'copy'): FilePreset {
+  return { id: '', kind: 'file', name, category: 'custom', builtIn: false, operation }
 }
 
 export function defaultTextWatermark(): Watermark {

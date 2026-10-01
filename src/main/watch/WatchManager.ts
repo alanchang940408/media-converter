@@ -10,10 +10,11 @@ import type { AddJobsRequest, AddJobsResult, Job, WatchFolder } from '../../shar
 import { t } from '../i18n'
 import type { JsonStore } from '../jsonStore'
 import type { PresetLookup } from '../presets/store'
-import { pathKey, TEMP_SUFFIX } from '../queue/outputPath'
+import { pathKey, RENAME_TEMP_SUFFIX, TEMP_SUFFIX } from '../queue/outputPath'
 
 export interface WatchQueue {
-  addJobs(req: AddJobsRequest): Promise<AddJobsResult>
+  /** `internal.relativeDir`: folder of the file relative to the watch folder (kept below the output folder). */
+  addJobs(req: AddJobsRequest, internal?: { relativeDir?: string }): Promise<AddJobsResult>
   getJobs(): Job[]
   onJobEnd(listener: (job: Job) => void): () => void
 }
@@ -58,7 +59,7 @@ interface PendingSource {
 }
 
 const MAX_PROCESSED = 50000
-const TEMP_EXTS = ['.tmp', '.temp', '.part', '.partial', '.crdownload', '.download', '.!ut', TEMP_SUFFIX]
+const TEMP_EXTS = ['.tmp', '.temp', '.part', '.partial', '.crdownload', '.download', '.!ut', TEMP_SUFFIX, RENAME_TEMP_SUFFIX]
 const JUNK_FILES = new Set(['thumbs.db', 'desktop.ini', '.ds_store'])
 
 export function effectiveOutputDir(f: WatchFolder): string {
@@ -180,6 +181,10 @@ export class WatchManager {
     if (!st?.isDirectory()) throw new Error(t('error.folderMissing', { path: input.path ?? '' }))
     const outputDir = input.outputDir && input.outputDir.trim() ? resolve(input.outputDir) : null
     if (outputDir && pathKey(outputDir) === pathKey(path)) throw new Error(t('error.outputIsWatchFolder'))
+    // watch folders convert; batch rename / copy / move presets are not allowed there
+    if ((Array.isArray(input.presetIds) ? input.presetIds : []).some((id) => this.deps.presets.get(id)?.kind === 'file')) {
+      throw new Error(t('error.filePresetInWatch'))
+    }
     const folders = this.deps.folders.get().folders
     const idx = input.id ? folders.findIndex((f) => f.id === input.id) : -1
     const clean: WatchFolder = {
@@ -301,9 +306,10 @@ export class WatchManager {
       if (!presets.length) return
       this.markProcessed(key)
 
-      const rel = relative(folder.path, dirname(abs))
+      // subfolders of the watch folder are recreated below the output folder (preserveStructure)
+      const rawRel = relative(folder.path, dirname(abs))
+      const rel = rawRel && !rawRel.startsWith('..') && !isAbsolute(rawRel) ? rawRel : ''
       const out = effectiveOutputDir(folder)
-      const outDir = rel && !rel.startsWith('..') && !isAbsolute(rel) ? join(out, rel) : out
 
       const entryKey = `${folder.id}|${fileKey}`
       const entry: PendingSource | null =
@@ -312,13 +318,16 @@ export class WatchManager {
       const jobIds: string[] = []
       try {
         for (const p of presets) {
-          const res = await this.deps.queue.addJobs({
-            paths: [abs],
-            videoPresetId: wantKind === 'video' ? p!.id : undefined,
-            imagePresetId: wantKind === 'image' ? p!.id : undefined,
-            output: { dir: outDir },
-            watchFolderId: folder.id,
-          })
+          const res = await this.deps.queue.addJobs(
+            {
+              paths: [abs],
+              videoPresetId: wantKind === 'video' ? p!.id : undefined,
+              imagePresetId: wantKind === 'image' ? p!.id : undefined,
+              output: { dir: out, preserveStructure: true },
+              watchFolderId: folder.id,
+            },
+            { relativeDir: rel },
+          )
           jobIds.push(...res.jobs.map((j) => j.id))
         }
       } finally {

@@ -578,7 +578,7 @@ export const en = {
   'editor.outputTarget': 'Output',
   'editor.outputFolder': 'Folder',
   'editor.fileName': 'File name',
-  'editor.fileNameHint': 'Tokens: {name} {preset} {date} {time} {counter} {width} {height} {parent}',
+  'editor.fileNameHint': 'Tokens: {name} {preset} {date} {time} {counter} {width} {height} {parent} {exifdate} {exiftime} {mdate}',
   'editor.conflict': 'If the file exists',
   'editor.trim': 'Trim',
   'editor.trimRange': '{in} – {out} · {dur}',

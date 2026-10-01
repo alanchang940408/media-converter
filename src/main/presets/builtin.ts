@@ -1,6 +1,8 @@
 // Built-in presets. Ids are a stable contract (settings, watch folders and the renderer refer to them).
 import type {
   AudioCodecId,
+  FileOperation,
+  FilePreset,
   ImageAction,
   ImageOutputSettings,
   ImagePreset,
@@ -39,6 +41,20 @@ function image(id: string, names: L3, descriptions: L3, actions: ImageAction[], 
     builtIn: true,
     actions,
     output,
+  }
+}
+
+function file(id: string, operation: FileOperation, names: L3, descriptions: L3): FilePreset {
+  return {
+    id,
+    kind: 'file',
+    name: names.en,
+    names: names as LocalizedText,
+    description: descriptions.en,
+    descriptions: descriptions as LocalizedText,
+    category: 'file',
+    builtIn: true,
+    operation,
   }
 }
 
@@ -550,7 +566,41 @@ export const BUILTIN_IMAGE_PRESETS: ImagePreset[] = [
   ),
 ]
 
-export const BUILTIN_PRESETS: Preset[] = [...BUILTIN_VIDEO_PRESETS, ...BUILTIN_IMAGE_PRESETS]
+/** Rename / copy / move without touching file contents (any file type). */
+export const BUILTIN_FILE_PRESETS: FilePreset[] = [
+  file(
+    'file-copy-rename',
+    'copy',
+    { 'zh-TW': '複製並重新命名', en: 'Copy & rename', ja: 'コピーして名前を変更' },
+    {
+      'zh-TW': '把檔案原封不動複製到輸出資料夾並套用新檔名，原始檔案完全不動。',
+      en: 'Copies the files unchanged into the output folder with new names. The originals are left as they are.',
+      ja: 'ファイルを変更せずに出力フォルダーへコピーし、新しい名前を付けます。元のファイルはそのままです。',
+    },
+  ),
+  file(
+    'file-rename',
+    'rename',
+    { 'zh-TW': '原地重新命名', en: 'Rename in place', ja: 'その場で名前を変更' },
+    {
+      'zh-TW': '在原本的資料夾裡直接改檔名，不複製也不轉檔，之後可以復原。',
+      en: 'Renames the files where they are — no copying, no converting. Can be undone.',
+      ja: '元のフォルダーのまま名前だけを変更します。コピーも変換もしません。あとで元に戻せます。',
+    },
+  ),
+  file(
+    'file-move-rename',
+    'move',
+    { 'zh-TW': '移動並重新命名', en: 'Move & rename', ja: '移動して名前を変更' },
+    {
+      'zh-TW': '把檔案搬到輸出資料夾並套用新檔名，不轉檔，之後可以復原。',
+      en: 'Moves the files into the output folder with new names, without converting. Can be undone.',
+      ja: 'ファイルを出力フォルダーへ移動し、新しい名前を付けます。変換はしません。あとで元に戻せます。',
+    },
+  ),
+]
+
+export const BUILTIN_PRESETS: Preset[] = [...BUILTIN_VIDEO_PRESETS, ...BUILTIN_IMAGE_PRESETS, ...BUILTIN_FILE_PRESETS]
 
 const byId = new Map(BUILTIN_PRESETS.map((p) => [p.id, p]))
 
@@ -564,3 +614,4 @@ export function isBuiltinId(id: string): boolean {
 
 export const DEFAULT_VIDEO_PRESET_ID = 'h264-match'
 export const DEFAULT_IMAGE_PRESET_ID = 'img-jpeg-q90'
+export const DEFAULT_FILE_PRESET_ID = 'file-copy-rename'

@@ -1,9 +1,10 @@
 // Edit one queued job's settings snapshot (video: encode settings + watermark + trim; image: action chain + output),
 // plus its output target. "Apply" patches the job; "Save as preset" stores a new user preset and links the job to it.
 import { useEffect, useMemo, useState } from 'react'
-import { ChevronDown, FolderOpen, FolderOutput, Info, Lock, Music, RotateCcw, Save, Scissors, SlidersHorizontal } from 'lucide-react'
+import { ChevronDown, FolderOpen, FolderOutput, FolderTree, Info, Lock, Music, RotateCcw, Save, Scissors, SlidersHorizontal } from 'lucide-react'
 import type {
   ConflictPolicy,
+  FileOperation,
   ImageAction,
   ImageOutputSettings,
   Job,
@@ -20,11 +21,13 @@ import { api } from '../api'
 import { closeEditor, confirmDialog, guard, promptDialog, savePreset, toast, tNow, updateJob, useLocale, useStore, useT } from '../store'
 import type { MessageKey } from '../i18n'
 import { clone, isEditableJob, presetName } from '../lib/presets'
-import { clamp, dirName, fileName, formatTimecode } from '../lib/format'
+import { clamp, dirName, fileName, formatTimecode, joinPath } from '../lib/format'
 import { computeVideoOutputSize } from '../lib/videoSize'
 import { useDebouncedValue } from '../lib/hooks'
+import { FILE_NAME_TOKENS, FILE_OPS, FILE_OP_DESC, FILE_OP_ICON, FILE_OP_LABEL, dotExt, exampleFileName } from '../lib/fileops'
 import { TimecodeInput } from '../components/TimecodeInput'
-import { Button, Menu, Modal, Select, Spinner, TextInput, cx, type MenuItem } from '../components/ui'
+import { NameTemplateField } from '../components/NameTemplateField'
+import { Button, Menu, Modal, Select, Spinner, Switch, TextInput, cx, type MenuItem } from '../components/ui'
 import { VideoSettingsForm } from '../editors/VideoSettingsForm'
 import { ImageChainEditor } from '../editors/ImageChainEditor'
 
@@ -33,6 +36,8 @@ interface Draft {
   trim: Trim | null
   actions?: ImageAction[]
   imgOutput?: ImageOutputSettings
+  /** File jobs (rename / copy / move). */
+  operation?: FileOperation
   output: OutputTarget
 }
 
@@ -42,6 +47,7 @@ function draftFromJob(job: Job): Draft {
     trim: job.video?.trim ? { ...job.video.trim } : null,
     actions: job.image ? clone(job.image.actions) : undefined,
     imgOutput: job.image ? clone(job.image.output) : undefined,
+    operation: job.kind === 'file' ? (job.file?.operation ?? 'rename') : undefined,
     output: { ...job.output },
   }
 }
@@ -63,6 +69,7 @@ function JobEditor({ job }: { job: Job }) {
   const [draft, setDraft] = useState<Draft>(baseline)
   const [busy, setBusy] = useState<'apply' | 'save' | null>(null)
   const locked = !isEditableJob(job)
+  const isFile = job.kind === 'file'
   const isVideo = job.kind === 'video' && !!draft.video
   const preset = presets.find((p) => p.id === job.presetId)
   const presetLabel = preset ? presetName(preset, locale) : job.presetName.replace(/\*$/, '')
@@ -73,7 +80,9 @@ function JobEditor({ job }: { job: Job }) {
   const differsFromPreset = preset
     ? preset.kind === 'video'
       ? !!draft.video && !same(preset.settings, draft.video)
-      : !same([preset.actions, preset.output], [draft.actions, draft.imgOutput])
+      : preset.kind === 'image'
+        ? !same([preset.actions, preset.output], [draft.actions, draft.imgOutput])
+        : preset.operation !== draft.operation
     : false
 
   const requestClose = async (): Promise<void> => {
@@ -87,12 +96,15 @@ function JobEditor({ job }: { job: Job }) {
   const revert = (): void => {
     if (!preset) return
     if (preset.kind === 'video') setDraft((d) => ({ ...d, video: clone(preset.settings) }))
-    else setDraft((d) => ({ ...d, actions: clone(preset.actions), imgOutput: clone(preset.output) }))
+    else if (preset.kind === 'image') setDraft((d) => ({ ...d, actions: clone(preset.actions), imgOutput: clone(preset.output) }))
+    else setDraft((d) => ({ ...d, operation: preset.operation }))
   }
 
   const buildPatch = (): JobPatch => {
     const patch: JobPatch = {}
-    if (isVideo) {
+    if (isFile) {
+      if (draft.operation && draft.operation !== baseline.operation) patch.file = { operation: draft.operation }
+    } else if (isVideo) {
       const v: NonNullable<JobPatch['video']> = {}
       if (!same(draft.video, baseline.video)) v.settings = draft.video
       if (!same(draft.trim, baseline.trim)) v.trim = draft.trim
@@ -126,8 +138,9 @@ function JobEditor({ job }: { job: Job }) {
     })
     if (!name) return
     setBusy('save')
-    const p: Preset =
-      isVideo && draft.video
+    const p: Preset = isFile
+      ? { id: '', kind: 'file', name, category: 'custom', builtIn: false, operation: draft.operation ?? 'rename' }
+      : isVideo && draft.video
         ? { id: '', kind: 'video', name, category: 'custom', builtIn: false, settings: clone(draft.video) }
         : { id: '', kind: 'image', name, category: 'custom', builtIn: false, actions: clone(draft.actions ?? []), output: clone(draft.imgOutput!) }
     const saved = await savePreset(p)
@@ -162,10 +175,10 @@ function JobEditor({ job }: { job: Job }) {
       title={t('editor.title')}
       subtitle={subtitle}
       icon={SlidersHorizontal}
-      size="xl"
+      size={isFile ? 'md' : 'xl'}
       onClose={() => void requestClose()}
       closeOnBackdrop={false}
-      className="editor-modal"
+      className={cx('editor-modal', isFile && 'editor-modal-file')}
       bodyClassName="je-body"
       footer={
         <>
@@ -188,7 +201,9 @@ function JobEditor({ job }: { job: Job }) {
           <Lock size={14} aria-hidden /> {t('editor.locked')}
         </div>
       )}
-      {isVideo && draft.video ? (
+      {isFile ? (
+        <FileJobForm job={job} draft={draft} presetLabel={presetLabel} disabled={locked} onChange={(patch) => setDraft((d) => ({ ...d, ...patch }))} />
+      ) : isVideo && draft.video ? (
         <div className="je-main je-video">
           <div className="je-form">
             <VideoSettingsForm value={draft.video} onChange={(video) => setDraft((d) => ({ ...d, video }))} sourceInfo={job.sourceInfo} disabled={locked} />
@@ -208,7 +223,7 @@ function JobEditor({ job }: { job: Job }) {
           />
         </div>
       ) : null}
-      <OutputTargetBar job={job} draft={draft} presetLabel={presetLabel} disabled={locked} onChange={(output) => setDraft((d) => ({ ...d, output }))} />
+      {!isFile && <OutputTargetBar job={job} draft={draft} presetLabel={presetLabel} disabled={locked} onChange={(output) => setDraft((d) => ({ ...d, output }))} />}
     </Modal>
   )
 }
@@ -432,6 +447,7 @@ function OutputTargetBar({
           <ChevronDown size={13} aria-hidden />
         </button>
         {menuAnchor && <Menu anchor={menuAnchor} items={items} onClose={() => setMenuAnchor(null)} />}
+        <KeepStructureSwitch job={job} output={o} disabled={disabled} onChange={onChange} />
       </div>
       <div className="je-field je-name">
         <span className="je-label">{t('editor.fileName')}</span>
@@ -454,3 +470,144 @@ function OutputTargetBar({
   )
 }
 
+
+// ───────────────────────────── keep folder structure ─────────────────────────────
+
+function KeepStructureSwitch({ job, output, disabled, onChange }: { job: Job; output: OutputTarget; disabled: boolean; onChange: (o: OutputTarget) => void }) {
+  const t = useT()
+  const on = !!output.preserveStructure && !!output.dir
+  return (
+    <div className="je-structure">
+      <Switch
+        checked={on}
+        onChange={(preserveStructure) => onChange({ ...output, preserveStructure })}
+        disabled={disabled || !output.dir}
+        label={t('fileops.keepStructure')}
+        title={job.relativeDir ? t('fileops.keepStructureRow', { dir: job.relativeDir }) : t('fileops.keepStructureHint')}
+      />
+      {on && job.relativeDir ? (
+        <span className="je-structure-path" title={joinPath(output.dir!, job.relativeDir)}>
+          <FolderTree size={11} aria-hidden /> {job.relativeDir}
+        </span>
+      ) : null}
+    </div>
+  )
+}
+
+
+// ───────────────────────────── file job (rename / copy / move) ─────────────────────────────
+
+function FileJobForm({
+  job,
+  draft,
+  presetLabel,
+  disabled,
+  onChange,
+}: {
+  job: Job
+  draft: Draft
+  presetLabel: string
+  disabled: boolean
+  onChange: (patch: Partial<Draft>) => void
+}) {
+  const t = useT()
+  const [menuAnchor, setMenuAnchor] = useState<HTMLElement | null>(null)
+  const op = draft.operation ?? 'rename'
+  const o = draft.output
+  const usesFolder = op !== 'rename'
+  const setOutput = (output: OutputTarget): void => onChange({ output })
+  const example = exampleFileName(job.source, o.nameTemplate || '{name}', { counter: 1, preset: presetLabel, taken: job.sourceInfo?.takenAt })
+  const items: MenuItem[] = [
+    {
+      key: 'choose',
+      label: t('queue.chooseFolder'),
+      icon: FolderOpen,
+      onSelect: async () => {
+        const dir = await guard(() => api.pickFolder(tNow('dialog.outputFolderTitle')))
+        if (dir) setOutput({ ...o, dir })
+      },
+    },
+    { key: 'same', label: t('common.sameAsSource'), checked: o.dir == null, onSelect: () => setOutput({ ...o, dir: null }) },
+  ]
+
+  return (
+    <div className="je-file">
+      <section className="je-file-section">
+        <h3 className="fo-h">{t('fileops.operation')}</h3>
+        <div className="fo-ops fo-ops-row" role="radiogroup" aria-label={t('fileops.operation')}>
+          {FILE_OPS.map((x) => {
+            const Icon = FILE_OP_ICON[x]
+            return (
+              <button
+                key={x}
+                type="button"
+                role="radio"
+                aria-checked={x === op}
+                disabled={disabled}
+                className={cx('fo-op', x === op && 'active', `op-${x}`)}
+                onClick={() => onChange({ operation: x })}
+              >
+                <span className="fo-op-icon" aria-hidden>
+                  <Icon size={16} />
+                </span>
+                <span className="fo-op-text">
+                  <span className="fo-op-name">{t(FILE_OP_LABEL[x])}</span>
+                  <span className="fo-op-desc">{t(FILE_OP_DESC[x])}</span>
+                </span>
+              </button>
+            )
+          })}
+        </div>
+      </section>
+      <section className="je-file-section">
+        <h3 className="fo-h">{t('fileops.destination')}</h3>
+        {usesFolder ? (
+          <div className="fo-dest">
+            <button
+              type="button"
+              className={cx('je-folder-btn', !o.dir && 'same')}
+              disabled={disabled}
+              title={o.dir ?? t('common.sameAsSource')}
+              aria-haspopup="menu"
+              aria-expanded={!!menuAnchor}
+              aria-label={`${t('editor.outputFolder')}: ${o.dir ?? t('common.sameAsSource')}`}
+              onClick={(e) => setMenuAnchor(e.currentTarget)}
+            >
+              <FolderOutput size={14} aria-hidden />
+              <span>{o.dir ?? t('common.sameAsSource')}</span>
+              <ChevronDown size={13} aria-hidden />
+            </button>
+            {menuAnchor && <Menu anchor={menuAnchor} items={items} onClose={() => setMenuAnchor(null)} />}
+            <KeepStructureSwitch job={job} output={o} disabled={disabled} onChange={setOutput} />
+          </div>
+        ) : (
+          <div className="fo-inplace">
+            <FolderOpen size={14} aria-hidden />
+            <span>{t('fileops.inPlace')}</span>
+          </div>
+        )}
+      </section>
+      <section className="je-file-section">
+        <h3 className="fo-h">{t('fileops.newName')}</h3>
+        <NameTemplateField value={o.nameTemplate} onChange={(nameTemplate) => setOutput({ ...o, nameTemplate })} tokens={FILE_NAME_TOKENS} disabled={disabled} ariaLabel={t('fileops.newName')} />
+        <div className="je-file-example" title={example}>
+          <span className="fo-label">{t('fileops.exampleOne')}</span>
+          <code>{fileName(job.source)}</code>
+          <span aria-hidden>→</span>
+          <code className="to">{example}</code>
+        </div>
+        <div className="fo-conflict">
+          <span className="fo-label">{t('editor.conflict')}</span>
+          <Select value={o.conflict} onChange={(v) => setOutput({ ...o, conflict: v as ConflictPolicy })} disabled={disabled} aria-label={t('editor.conflict')}>
+            {(['rename', 'overwrite', 'skip'] as const).map((c) => (
+              <option key={c} value={c}>
+                {t(`conflict.${c}` as MessageKey)}
+              </option>
+            ))}
+          </Select>
+        </div>
+        {!dotExt(job.source) && <div className="fo-hint">{t('fileops.noExtension')}</div>}
+      </section>
+    </div>
+  )
+}

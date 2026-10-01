@@ -1,6 +1,6 @@
 // User presets (userData presets.json) layered over the built-ins, plus JSON import/export.
 import { randomUUID } from 'node:crypto'
-import type { Locale, Preset, PresetCategory } from '../../shared/types'
+import type { FileOperation, Locale, Preset, PresetCategory } from '../../shared/types'
 import { allowedAudioCodecs, allowedVideoCodecs } from '../../shared/videoRules'
 import { t } from '../i18n'
 import type { JsonStore } from '../jsonStore'
@@ -21,7 +21,8 @@ export interface PresetLookup {
   get(id: string): Preset | undefined
 }
 
-const CATEGORIES: PresetCategory[] = ['web', 'social', 'editing', 'archive', 'device', 'gif', 'audio', 'image', 'custom']
+const CATEGORIES: PresetCategory[] = ['web', 'social', 'editing', 'archive', 'device', 'gif', 'audio', 'image', 'file', 'custom']
+const FILE_OPERATIONS: FileOperation[] = ['copy', 'move', 'rename']
 const CONTAINERS = ['mp4', 'mov', 'mkv', 'webm', 'gif', 'mp3', 'm4a', 'wav', 'flac', 'ogg']
 const IMAGE_FORMATS = ['jpeg', 'png', 'webp', 'avif', 'tiff', 'gif', 'keep']
 const RATE_MODES = ['crf', 'vbr', 'cbr']
@@ -42,11 +43,13 @@ export function normalizePreset(raw: unknown): Preset | null {
   if (!isObj(raw)) return null
   const name = typeof raw.name === 'string' && raw.name.trim() ? raw.name.trim().slice(0, 200) : null
   if (!name) return null
+  const category: PresetCategory = CATEGORIES.includes(raw.category as PresetCategory) ? (raw.category as PresetCategory) : 'custom'
   const base = {
     id: typeof raw.id === 'string' ? raw.id : '',
     name,
     description: typeof raw.description === 'string' ? raw.description.slice(0, 1000) : undefined,
-    category: CATEGORIES.includes(raw.category as PresetCategory) ? (raw.category as PresetCategory) : 'custom',
+    // the 'file' category is reserved for file-operation presets (and file presets always live there)
+    category: category === 'file' ? ('custom' as PresetCategory) : category,
     builtIn: false,
   }
   if (raw.kind === 'video') {
@@ -71,6 +74,10 @@ export function normalizePreset(raw: unknown): Preset | null {
       actions: structuredClone(actions) as never,
       output: structuredClone(raw.output) as never,
     }
+  }
+  if (raw.kind === 'file') {
+    if (!FILE_OPERATIONS.includes(raw.operation as FileOperation)) return null
+    return { ...base, kind: 'file', category: 'file', operation: raw.operation as FileOperation }
   }
   return null
 }

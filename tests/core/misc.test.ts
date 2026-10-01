@@ -115,6 +115,8 @@ describe('settings', () => {
       preferredHw: 'auto',
       lastVideoPresetId: 'h264-match',
       lastImagePresetId: 'img-jpeg-q90',
+      lastFilePresetId: 'file-copy-rename',
+      preserveStructure: true,
       notifyOnFinish: true,
       preventSleep: true,
       removeFinished: false,
@@ -131,6 +133,19 @@ describe('settings', () => {
     expect(s.theme).toBe('dark')
     expect(s.conflict).toBe('skip')
     expect(s.defaultNameTemplate).toBe('{name}')
+    // new fields: kept when valid, defaults otherwise (older settings files lack them)
+    expect(sanitizeSettings({ lastFilePresetId: 'file-rename', preserveStructure: false })).toMatchObject({
+      lastFilePresetId: 'file-rename',
+      preserveStructure: false,
+    })
+    expect(sanitizeSettings({ lastFilePresetId: '  ', preserveStructure: 'yes' } as unknown as Partial<AppSettings>)).toMatchObject({
+      lastFilePresetId: 'file-copy-rename',
+      preserveStructure: true,
+    })
+    const legacy = { ...defaultSettings() } as Partial<AppSettings>
+    delete legacy.lastFilePresetId
+    delete legacy.preserveStructure
+    expect(sanitizeSettings(legacy)).toMatchObject({ lastFilePresetId: 'file-copy-rename', preserveStructure: true })
     expect(resolveLocale('auto', 'zh-HK')).toBe('zh-TW')
     expect(resolveLocale('auto', 'ja-JP')).toBe('ja')
     expect(resolveLocale('auto', 'de-DE')).toBe('en')

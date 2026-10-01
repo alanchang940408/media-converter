@@ -2,7 +2,7 @@
 import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { basename, join } from 'node:path'
 import {
   EncodeError,
   type FfmpegEngine,
@@ -15,6 +15,8 @@ import {
 } from '../../src/main/contracts'
 import { JsonStore } from '../../src/main/jsonStore'
 import { emptyPresetFile, PresetStore, type PresetFile } from '../../src/main/presets/store'
+import type { FileOpsFs } from '../../src/main/queue/fileOps'
+import { emptyJournal, parseJournal, type FileOpJournal, type JournalStore } from '../../src/main/queue/journal'
 import { emptyQueue, Queue, type PersistedQueue, type QueueEffects } from '../../src/main/queue/Queue'
 import { defaultSettings, type SettingsAccess } from '../../src/main/settings'
 import { extOf } from '../../src/shared/media'
@@ -139,9 +141,27 @@ export class FakeImage implements ImageEngine {
   readonly pending: Pending<ImageProcessRequest>[] = []
   readonly watermarkCalls: { frameW: number; frameH: number; vars?: { name?: string; date?: string } }[] = []
   result = { width: 400, height: 300 }
+  /** EXIF taken times by file name (base name with extension); readTakenAt() answers from here. */
+  takenAt: Record<string, number> = {}
+  readonly takenReads: string[] = []
 
   async probe(path: string): Promise<MediaInfo> {
-    return { path, kind: 'image', sizeBytes: 10, width: 800, height: 600, hasAudio: false, format: extOf(path) }
+    const takenAt = this.takenAt[basename(path)]
+    return {
+      path,
+      kind: 'image',
+      sizeBytes: 10,
+      width: 800,
+      height: 600,
+      hasAudio: false,
+      format: extOf(path),
+      ...(takenAt !== undefined ? { takenAt } : {}),
+    }
+  }
+
+  async readTakenAt(path: string): Promise<number | undefined> {
+    this.takenReads.push(path)
+    return this.takenAt[basename(path)]
   }
 
   outputExtension(output: ImageOutputSettings, sourcePath: string): string {
@@ -215,17 +235,30 @@ export interface Harness {
     notifications: { title: string; body: string }[]
   }
   wmDir: string
+  journal: JsonStore<FileOpJournal>
 }
 
 export function makeHarness(
   dir: string,
-  opts: { settings?: Partial<AppSettings>; ffmpeg?: FakeFfmpeg; image?: FakeImage; storeFile?: string } = {},
+  opts: {
+    settings?: Partial<AppSettings>
+    ffmpeg?: FakeFfmpeg
+    image?: FakeImage
+    storeFile?: string
+    journalFile?: string
+    fileOps?: Partial<FileOpsFs>
+    fileConcurrency?: number
+  } = {},
 ): Harness {
   const ffmpeg = opts.ffmpeg ?? new FakeFfmpeg()
   const image = opts.image ?? new FakeImage()
   const settings = fakeSettings(opts.settings)
   const presets = new PresetStore(new JsonStore<PresetFile>(join(dir, 'presets.json'), emptyPresetFile, { debounceMs: 5 }))
   const store = new JsonStore<PersistedQueue>(opts.storeFile ?? join(dir, 'queue.json'), emptyQueue, { debounceMs: 5 })
+  const journal = new JsonStore<FileOpJournal>(opts.journalFile ?? join(dir, 'file-ops-journal.json'), emptyJournal, {
+    debounceMs: 5,
+    parse: parseJournal,
+  })
   const events: QueueEvent[] = []
   const effectsLog = { progress: [] as (number | null)[], sleep: [] as boolean[], notifications: [] as { title: string; body: string }[] }
   const effects: QueueEffects = {
@@ -243,10 +276,13 @@ export function makeHarness(
     presets,
     getCapabilities: async () => fakeCaps,
     effects,
+    journal: journal as JournalStore,
+    fileOps: opts.fileOps,
+    fileConcurrency: opts.fileConcurrency,
     tmpDir: wmDir,
     progressIntervalMs: 20,
   })
-  return { dir, queue, ffmpeg, image, settings, presets, store, events, effects: effectsLog, wmDir }
+  return { dir, queue, ffmpeg, image, settings, presets, store, events, effects: effectsLog, wmDir, journal }
 }
 
 export { EncodeError }

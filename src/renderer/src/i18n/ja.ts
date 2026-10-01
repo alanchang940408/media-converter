@@ -578,7 +578,7 @@ export const ja: Record<keyof typeof en, string> = {
   'editor.outputTarget': '出力',
   'editor.outputFolder': 'フォルダー',
   'editor.fileName': 'ファイル名',
-  'editor.fileNameHint': '使えるトークン：{name} {preset} {date} {time} {counter} {width} {height} {parent}',
+  'editor.fileNameHint': '使えるトークン：{name} {preset} {date} {time} {counter} {width} {height} {parent} {exifdate} {exiftime} {mdate}',
   'editor.conflict': '同名ファイルがあるとき',
   'editor.trim': 'トリミング',
   'editor.trimRange': '{in} – {out} · {dur}',

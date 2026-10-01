@@ -1,6 +1,7 @@
 // Display labels and one-line summaries for presets / codecs.
 import type {
   AudioCodecId,
+  FileOperation,
   ImageAction,
   ImageOutputSettings,
   OutputContainer,
@@ -90,8 +91,14 @@ export function imageSummary(actions: ImageAction[], output: ImageOutputSettings
   return parts.join(' · ')
 }
 
+export function fileOpSummary(op: FileOperation, t: TFunc): string {
+  return t(`fileop.summary.${op}` as MessageKey)
+}
+
 export function presetSummary(p: Preset, t: TFunc): string {
-  return p.kind === 'video' ? videoSummary(p.settings, t) : imageSummary(p.actions, p.output, t)
+  if (p.kind === 'video') return videoSummary(p.settings, t)
+  if (p.kind === 'image') return imageSummary(p.actions, p.output, t)
+  return fileOpSummary(p.operation, t)
 }
 
 export const tk = (k: string): MessageKey => k as MessageKey

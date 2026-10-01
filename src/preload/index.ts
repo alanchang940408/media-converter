@@ -72,6 +72,10 @@ const api: MediaApi = {
   previewVideoFrame: invoke('previewVideoFrame'),
   previewImage: invoke('previewImage'),
 
+  previewFileOps: invoke('previewFileOps'),
+  getFileOpUndo: invoke('getFileOpUndo'),
+  undoFileOps: invoke('undoFileOps'),
+
   listWatchFolders: invoke('listWatchFolders'),
   saveWatchFolder: invoke('saveWatchFolder'),
   deleteWatchFolder: invoke('deleteWatchFolder'),

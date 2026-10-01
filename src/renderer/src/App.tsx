@@ -4,7 +4,7 @@ import { Cpu, FolderSearch, Gauge, Layers, ListVideo, RefreshCw, Settings, Trian
 import type { EncoderCapabilities } from '../../shared/types'
 import { HW_PRIORITY } from '../../shared/videoRules'
 import { api, isMock } from './api'
-import { addPaths, init, openSettings, setView, toast, tNow, useLocale, useStore, useT, type View } from './store'
+import { addFileOpsEntries, addPaths, init, openSettings, setView, toast, tNow, useLocale, useStore, useT, type View } from './store'
 import { LOCALE_HTML_LANG, type MessageKey } from './i18n'
 import { isFileDrag } from './lib/dnd'
 import { AppMark } from './components/AppMark'
@@ -16,6 +16,8 @@ import { WatchView } from './views/WatchView'
 import { SettingsModal } from './modals/SettingsModal'
 import { PreviewModal } from './modals/PreviewModal'
 import { JobEditorModal } from './modals/JobEditorModal'
+import { FileOpsModal } from './modals/FileOpsModal'
+import { entriesFromPaths } from './lib/fileops'
 
 export function App() {
   const ready = useStore((s) => s.ready)
@@ -38,6 +40,7 @@ export function App() {
       <SettingsModal />
       <PreviewModal />
       <JobEditorModal />
+      <FileOpsModal />
       <DialogHost />
       <Toasts />
       <DropOverlay visible={dragging} />
@@ -135,6 +138,11 @@ function useWindowFileDrop(enabled: boolean): boolean {
       }
       if (!paths.length) {
         toast('error', tNow('toast.dropUnreadable'))
+        return
+      }
+      // While the batch rename dialog is open, drops go into its file list instead of the queue.
+      if (useStore.getState().fileOps) {
+        addFileOpsEntries(entriesFromPaths(paths))
         return
       }
       setView('queue')

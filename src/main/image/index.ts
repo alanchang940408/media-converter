@@ -6,6 +6,7 @@ import type { ImageFormat, MediaInfo } from '../../shared/types'
 import type { ImageEngine, ImageProcessRequest, ImageProcessResult } from '../contracts'
 import { baseNameOf } from '../../shared/media'
 import { type DecodedSource, openSource, SHARP_OPTS } from './decode'
+import { readTakenAt, takenAtFromExif } from './exif'
 import { extensionFor, mimeFor, resolveFormat } from './output'
 import { buildOutput } from './pipeline'
 import { abortError, throwIfAborted, today } from './util'
@@ -24,6 +25,8 @@ async function probe(path: string): Promise<MediaInfo> {
   const m = src.meta
   const swap = src.orientation >= 5 && src.orientation <= 8
   const pages = m.pages && m.pages > 1 ? m.pages : 1
+  // ffmpeg-decoded sources (HEIC, …) lose their EXIF in the PNG round trip: read it from the file itself
+  const takenAt = src.viaFfmpeg ? await readTakenAt(path) : takenAtFromExif(m.exif)
   return {
     path,
     kind: 'image',
@@ -36,6 +39,7 @@ async function probe(path: string): Promise<MediaInfo> {
     hasAlpha: !!m.hasAlpha,
     frameCount: pages,
     pixFmt: `${m.space}${m.depth === 'ushort' ? '16' : ''}`,
+    ...(takenAt !== undefined ? { takenAt } : {}),
   }
 }
 
@@ -80,6 +84,8 @@ export const imageEngine: ImageEngine = {
   },
 
   process: processImage,
+
+  readTakenAt,
 
   async preview(req) {
     const maxSize = fitBox(req.maxSize)

@@ -1,11 +1,12 @@
 // Presets screen — left column: kind switch, search, built-in / mine filter, grouped list.
 import { useMemo, useRef, type KeyboardEvent } from 'react'
-import { Film, Image as ImageIcon, Lock, Music, Search, Sparkles, X } from 'lucide-react'
+import { Film, FilePen, Image as ImageIcon, Lock, Music, Search, Sparkles, X } from 'lucide-react'
 import type { Preset } from '../../../../shared/types'
 import { useLocale, useStore, useT } from '../../store'
 import type { MessageKey } from '../../i18n'
 import { groupByCategory, isAudioPreset, presetDescription, presetName } from '../../lib/presets'
 import { presetSummary } from '../../lib/labels'
+import { FILE_OP_ICON } from '../../lib/fileops'
 import { Segmented, cx } from '../../components/ui'
 import { isDirty, selectPreset, switchKind, usePresetDraft, type PresetFilter, type PresetKind } from './draft'
 
@@ -25,6 +26,7 @@ export function PresetList() {
     () => ({
       video: presets.filter((p) => p.kind === 'video').length,
       image: presets.filter((p) => p.kind === 'image').length,
+      file: presets.filter((p) => p.kind === 'file').length,
     }),
     [presets],
   )
@@ -82,6 +84,7 @@ export function PresetList() {
           options={[
             { value: 'video', label: <KindLabel text={t('presetsView.kindVideo')} n={counts.video} />, icon: Film, title: `${t('presetsView.kindVideo')} (${counts.video})` },
             { value: 'image', label: <KindLabel text={t('presetsView.kindImage')} n={counts.image} />, icon: ImageIcon, title: `${t('presetsView.kindImage')} (${counts.image})` },
+            { value: 'file', label: <KindLabel text={t('presetsView.kindFile')} n={counts.file} />, icon: FilePen, title: `${t('presetsView.kindFileHint')} (${counts.file})` },
           ]}
         />
         <div className="search-field pv-search">
@@ -161,7 +164,7 @@ function KindLabel({ text, n }: { text: string; n: number }) {
 function PresetItem({ p, selected, focusable, dirty }: { p: Preset; selected: boolean; focusable: boolean; dirty: boolean }) {
   const t = useT()
   const locale = useLocale()
-  const Icon = p.kind === 'image' ? ImageIcon : isAudioPreset(p) ? Music : Film
+  const Icon = p.kind === 'file' ? FILE_OP_ICON[p.operation] : p.kind === 'image' ? ImageIcon : isAudioPreset(p) ? Music : Film
   const name = presetName(p, locale)
   const desc = presetDescription(p, locale)
   return (

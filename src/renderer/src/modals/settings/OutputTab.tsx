@@ -1,28 +1,17 @@
 // Settings → Output: default folder, file-name template (token chips + live example), conflict policy.
 import { useEffect, useRef, useState } from 'react'
-import { FileType, FolderOpen, FolderOutput, RotateCcw, ShieldAlert } from 'lucide-react'
+import { FileType, FolderOpen, FolderOutput, Info, RotateCcw, ShieldAlert } from 'lucide-react'
 import type { ConflictPolicy } from '../../../../shared/types'
 import { NAME_TOKENS, renderNameTemplate } from '../../../../shared/naming'
 import { api } from '../../api'
 import { guard, saveSettings, tNow, useLocale, useStore, useT } from '../../store'
 import type { MessageKey } from '../../i18n'
 import { presetName } from '../../lib/presets'
-import { Button, Segmented, TextInput, cx } from '../../components/ui'
+import { TOKEN_LABEL, TOKEN_TITLE } from '../../lib/tokens'
+import { Button, Segmented, Switch, TextInput, cx } from '../../components/ui'
 import { SettingGroup, SettingRow } from './parts'
 
 const DEFAULT_TEMPLATE = '{name}'
-const TOKEN_HINT: Record<(typeof NAME_TOKENS)[number], MessageKey> = {
-  '{name}': 'settings.tokenName',
-  '{ext}': 'settings.tokenExt',
-  '{preset}': 'settings.tokenPreset',
-  '{date}': 'settings.tokenDate',
-  '{time}': 'settings.tokenTime',
-  '{counter}': 'settings.tokenCounter',
-  '{counter:3}': 'settings.tokenCounter3',
-  '{width}': 'settings.tokenWidth',
-  '{height}': 'settings.tokenHeight',
-  '{parent}': 'settings.tokenParent',
-}
 const CONFLICTS: ConflictPolicy[] = ['rename', 'overwrite', 'skip']
 
 export function OutputTab() {
@@ -60,6 +49,9 @@ export function OutputTab() {
               </div>
             )}
           </div>
+        </SettingRow>
+        <SettingRow title={t('settings.keepStructure')} desc={t('settings.keepStructureDesc')}>
+          <Switch checked={s.preserveStructure} onChange={(preserveStructure) => void saveSettings({ preserveStructure })} label={s.preserveStructure ? t('common.enabled') : t('common.disabled')} />
         </SettingRow>
       </SettingGroup>
 
@@ -182,14 +174,25 @@ function NameTemplateEditor() {
               key={tok}
               type="button"
               className="st-token"
-              title={t(TOKEN_HINT[tok])}
+              title={t(TOKEN_TITLE[tok] ?? TOKEN_LABEL[tok])}
               onMouseDown={(e) => e.preventDefault() /* keep the caret in the input */}
               onClick={() => insert(tok)}
             >
               <code>{tok}</code>
-              <span>{t(TOKEN_HINT[tok])}</span>
+              <span>{t(TOKEN_LABEL[tok])}</span>
             </button>
           ))}
+        </div>
+        <div className="st-token-notes">
+          <Info size={13} aria-hidden />
+          <div>
+            <div>
+              <code>{'{exifdate}'}</code> <code>{'{exiftime}'}</code> {t('tokens.noteExif')}
+            </div>
+            <div>
+              <code>{'{mdate}'}</code> {t('tokens.noteMdate')}
+            </div>
+          </div>
         </div>
         <div className="st-example">
           <span className="st-example-label">{t('settings.example')}</span>

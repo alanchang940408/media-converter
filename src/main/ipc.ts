@@ -215,6 +215,11 @@ export function createHandlers(ctx: IpcContext): Handlers {
       }
     },
 
+    // ── file operations ──
+    previewFileOps: (ids) => queue.previewFileOps(Array.isArray(ids) ? ids.filter((id) => typeof id === 'string') : []),
+    getFileOpUndo: async () => queue.getFileOpUndo(),
+    undoFileOps: () => queue.undoFileOps(),
+
     // ── watch folders ──
     listWatchFolders: async () => watch.list(),
     saveWatchFolder: (w) => watch.save(w),

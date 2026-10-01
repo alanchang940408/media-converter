@@ -9,6 +9,11 @@ import type {
   AppSettings,
   EncoderCapabilities,
   FileKindFilter,
+  FileOperation,
+  FileOpPreviewItem,
+  FileOpUndoInfo,
+  FileOpUndoResult,
+  FilePreset,
   ImageAction,
   ImageOutputSettings,
   ImagePreset,
@@ -505,6 +510,31 @@ function builtInPresets(): Preset[] {
   ]
 }
 
+function fp(id: string, operation: FileOperation, names: [string, string, string], desc: [string, string, string]): FilePreset {
+  return {
+    id,
+    kind: 'file',
+    builtIn: true,
+    category: 'file',
+    operation,
+    name: names[0],
+    names: { en: names[0], 'zh-TW': names[1], ja: names[2] },
+    description: desc[0],
+    descriptions: { en: desc[0], 'zh-TW': desc[1], ja: desc[2] },
+  }
+}
+
+function builtInFilePresets(): FilePreset[] {
+  return [
+    fp('builtin-file-copy', 'copy', ['Copy & rename', '複製並重新命名', 'コピーして名前を変更'],
+      ['Copies the files into the output folder with new names. The originals stay untouched.', '把檔案以新名稱複製到輸出資料夾，原始檔案完全不動。', '新しい名前で出力先にコピーします。元のファイルはそのまま残ります。']),
+    fp('builtin-file-rename', 'rename', ['Rename in place', '原地重新命名', 'その場で名前を変更'],
+      ['Gives the files new names in the folder they are in. Can be undone.', '直接在原本的資料夾裡改檔名，之後可以復原。', '今あるフォルダーの中で名前を変更します。元に戻せます。']),
+    fp('builtin-file-move', 'move', ['Move & rename', '移動並重新命名', '移動して名前を変更'],
+      ['Moves the files into the output folder with new names. Can be undone.', '把檔案以新名稱移到輸出資料夾，之後可以復原。', '新しい名前で出力先へ移動します。元に戻せます。']),
+  ]
+}
+
 function userPresets(): Preset[] {
   return [
     {
@@ -538,6 +568,8 @@ function defaultSettings(): AppSettings {
     preferredHw: 'auto',
     lastVideoPresetId: 'builtin-h264-1080p',
     lastImagePresetId: 'builtin-img-web-jpeg',
+    lastFilePresetId: 'builtin-file-rename',
+    preserveStructure: true,
     notifyOnFinish: true,
     preventSleep: true,
     removeFinished: false,
@@ -565,7 +597,7 @@ function navigatorLocale(): Locale {
 // ───────────────────────────── the mock ─────────────────────────────
 
 export function createMockApi(): MediaApi {
-  let presets: Preset[] = [...builtInPresets(), ...userPresets()]
+  let presets: Preset[] = [...builtInPresets(), ...builtInFilePresets(), ...userPresets()]
   let settings = loadSettings()
   let running = true
   let jobs: Job[] = []
@@ -597,16 +629,51 @@ export function createMockApi(): MediaApi {
   let runStats = { done: 0, failed: 0, cancelled: 0, skipped: 0 }
   let timer: ReturnType<typeof setInterval> | null = null
   let emptyVideoUrl: string | null = null
+  /** Move/rename jobs finished in the current run (journal for undo). */
+  let runJournal: { jobId: string; from: string; to: string; op: 'move' | 'rename' }[] = []
+  let undoInfo: FileOpUndoInfo | null = null
+  let undoJournal: { from: string; to: string }[] = []
 
   const findPreset = (id: string): Preset | undefined => presets.find((p) => p.id === id)
   const localName = (p: Preset): string => p.names?.[resolvedLocale()] ?? p.name
   const resolvedLocale = (): Locale => (settings.language === 'auto' ? navigatorLocale() : settings.language)
 
+  /** Deterministic fake file times (epoch ms): modified within the last ~400 days, photos taken a bit earlier. */
+  function fakeMtime(path: string): number {
+    return Date.now() - ((hashStr(path) % 400) + 1) * 86_400_000 - (hashStr(path + 'm') % 86_400) * 1000
+  }
+  function fakeTaken(path: string): number | undefined {
+    if (classifyPath(path) !== 'image') return undefined
+    const d = new Date(2026, 8, 20 + (hashStr(path) % 9), 8 + (hashStr(path + 'h') % 11), hashStr(path + 'n') % 60, hashStr(path + 's') % 60)
+    return d.getTime()
+  }
+
+  function makeFileJob(source: string, preset: FilePreset, extra: Partial<Job> = {}): Job {
+    const media = classifyPath(source)
+    const sourceInfo: MediaInfo | undefined = media ? { ...fakeInfo(source), takenAt: fakeTaken(source) } : undefined
+    return {
+      id: `job-${++counter}`,
+      kind: 'file',
+      source,
+      sourceInfo,
+      presetId: preset.id,
+      presetName: localName(preset),
+      file: { operation: preset.operation },
+      output: { dir: settings.defaultOutputDir, nameTemplate: settings.defaultNameTemplate, conflict: settings.conflict },
+      status: 'queued',
+      progress: 0,
+      createdAt: Date.now(),
+      ...extra,
+    }
+  }
+
   function makeJob(source: string, presetId: string, extra: Partial<Job> = {}, info?: Partial<MediaInfo>): Job {
+    const fixed = findPreset(presetId)
+    if (fixed?.kind === 'file') return makeFileJob(source, fixed, extra)
     const sourceInfo = { ...fakeInfo(source), ...info }
     let preset = findPreset(presetId)
     const kind: Job['kind'] = sourceInfo.kind === 'image' ? 'image' : 'video'
-    if (!preset || (kind === 'image') !== (preset.kind === 'image')) {
+    if (!preset || preset.kind === 'file' || (kind === 'image') !== (preset.kind === 'image')) {
       preset = findPreset(kind === 'image' ? settings.lastImagePresetId : settings.lastVideoPresetId)!
     }
     if (sourceInfo.kind === 'audio' && preset.kind === 'video' && !isAudioOnlyContainer(preset.settings.container)) {
@@ -626,11 +693,82 @@ export function createMockApi(): MediaApi {
       ...extra,
     }
     if (preset.kind === 'video') job.video = { settings: clone(preset.settings), trim: null }
-    else job.image = { actions: clone(preset.actions), output: clone(preset.output) }
+    else if (preset.kind === 'image') job.image = { actions: clone(preset.actions), output: clone(preset.output) }
     return job
   }
 
+  // ── file operations (dry run shared by previewFileOps and the simulated run) ──
+
+  /** {counter} of file jobs, fixed when they are added (position in the sorted batch). */
+  const fileCounters = new Map<string, number>()
+
+  /** Files that "already exist" on the fake disk: the 2nd file of every batch and a few others, so the demo shows conflicts. */
+  function existsOnDisk(target: string, counterValue: number): boolean {
+    return counterValue === 2 || hashStr(target.toLowerCase()) % 9 === 0
+  }
+
+  function fileTargets(list: Job[]): Map<string, FileOpPreviewItem> {
+    const out = new Map<string, FileOpPreviewItem>()
+    const taken = new Set<string>()
+    list.forEach((job, i) => {
+      const counterValue = fileCounters.get(job.id) ?? i + 1
+      const op = job.file?.operation ?? 'rename'
+      let dir = op === 'rename' || !job.output.dir ? dirName(job.source) : job.output.dir
+      if (op !== 'rename' && job.output.dir && job.output.preserveStructure && job.relativeDir) dir = joinPath(dir, job.relativeDir)
+      const base = fileName(job.source)
+      const dot = base.lastIndexOf('.')
+      const ext = dot > 0 ? base.slice(dot) : ''
+      const name = renderNameTemplate(job.output.nameTemplate, {
+        name: baseNameOf(job.source),
+        ext: extOf(job.source),
+        preset: job.presetName.replace(/\*$/, ''),
+        parent: fileName(dirName(job.source)),
+        counter: counterValue,
+        now: new Date(),
+        taken: job.sourceInfo?.takenAt != null ? new Date(job.sourceInfo.takenAt) : undefined,
+        modified: new Date(fakeMtime(job.source)),
+      })
+      let target = joinPath(dir, name + ext)
+      if (target.toLowerCase() === job.source.toLowerCase()) {
+        out.set(job.id, { jobId: job.id, source: job.source, target, status: 'unchanged' })
+        taken.add(target.toLowerCase())
+        return
+      }
+      let status: FileOpPreviewItem['status'] = 'ok'
+      const inBatch = taken.has(target.toLowerCase())
+      if (inBatch || existsOnDisk(target, counterValue)) {
+        // Two outputs never share a name: clashes inside the batch always get a number.
+        const policy = inBatch ? 'rename' : job.output.conflict
+        if (policy === 'skip') {
+          out.set(job.id, { jobId: job.id, source: job.source, target: null, status: 'skip' })
+          return
+        }
+        if (policy === 'overwrite') status = 'overwrite'
+        else {
+          let n = 1
+          let next = joinPath(dir, `${name} (${n})${ext}`)
+          while (taken.has(next.toLowerCase())) next = joinPath(dir, `${name} (${++n})${ext}`)
+          target = next
+          status = 'renamed'
+        }
+      }
+      taken.add(target.toLowerCase())
+      out.set(job.id, { jobId: job.id, source: job.source, target, status })
+    })
+    return out
+  }
+
+  /** Targets fixed when the queue starts, so numbering does not shift while jobs finish. */
+  let plannedTargets = new Map<string, FileOpPreviewItem>()
+  function planFileTargets(): void {
+    plannedTargets = fileTargets(jobs.filter((j) => j.kind === 'file' && j.status === 'queued'))
+  }
+  function fileTargetFor(job: Job): FileOpPreviewItem | undefined {
+    return plannedTargets.get(job.id) ?? fileTargets([job]).get(job.id)
+  }
+
   function outputExt(job: Job): string {
+    if (job.kind === 'file') return extOf(job.source)
     if (job.kind === 'video') return job.video!.settings.container
     const f = job.image!.output.format
     if (f === 'keep') {
@@ -641,6 +779,7 @@ export function createMockApi(): MediaApi {
   }
 
   function encoderFor(job: Job): string {
+    if (job.kind === 'file') return job.file?.operation ?? 'rename'
     if (job.kind === 'image') return 'sharp'
     const s = job.video!.settings
     const c = s.video.codec
@@ -706,12 +845,20 @@ export function createMockApi(): MediaApi {
   }
 
   function startJob(job: Job): void {
+    const fileTarget = job.kind === 'file' ? fileTargetFor(job) : undefined
     job.status = 'running'
     job.progress = 0
     job.startedAt = Date.now()
     job.elapsedSec = 0
     job.encoder = encoderFor(job)
-    job.outputPath = resolveOutputPath(job)
+    job.outputPath = job.kind === 'file' ? (fileTarget?.target ?? undefined) : resolveOutputPath(job)
+    if (fileTarget && fileTarget.status === 'skip') {
+      job.status = 'skipped'
+      job.error = 'A file with the new name already exists'
+      job.finishedAt = Date.now()
+      runStats.skipped++
+      return
+    }
     job.error = undefined
     job.logTail = undefined
   }
@@ -719,7 +866,7 @@ export function createMockApi(): MediaApi {
   function schedule(): void {
     if (!running) return
     const runningVideo = jobs.filter((j) => j.status === 'running' && j.kind === 'video').length
-    const runningImage = jobs.filter((j) => j.status === 'running' && j.kind === 'image').length
+    const runningImage = jobs.filter((j) => j.status === 'running' && j.kind !== 'video').length
     let freeV = Math.max(0, settings.videoConcurrency - runningVideo)
     let freeI = Math.max(0, settings.imageConcurrency - runningImage)
     for (const j of jobs) {
@@ -727,9 +874,10 @@ export function createMockApi(): MediaApi {
       if (j.kind === 'video' && freeV > 0) {
         startJob(j)
         freeV--
-      } else if (j.kind === 'image' && freeI > 0) {
+      } else if (j.kind !== 'video' && freeI > 0) {
         startJob(j)
-        freeI--
+        // a file job whose target exists with conflict 'skip' finishes immediately
+        if ((j.status as Job['status']) === 'running') freeI--
       }
     }
   }
@@ -749,7 +897,7 @@ export function createMockApi(): MediaApi {
       const gpu = /nvenc|qsv|amf/.test(j.encoder ?? '')
       const speed = j.kind === 'image' ? 1 : j.encoder === 'none' || j.video?.settings.video.codec === 'none' ? 38 : gpu ? 2.4 + (hashStr(j.id) % 20) / 10 : 0.7 + (hashStr(j.id) % 9) / 10
       // Demo pacing: long enough that the running state stays visible while exploring the UI.
-      const dur = j.kind === 'image' ? 2.5 : Math.min(150, Math.max(30, (info?.durationSec ?? 60) / speed))
+      const dur = j.kind === 'file' ? 0.5 : j.kind === 'image' ? 2.5 : Math.min(150, Math.max(30, (info?.durationSec ?? 60) / speed))
       j.progress = Math.min(1, j.progress + 0.25 / dur)
       j.elapsedSec = (j.elapsedSec ?? 0) + 0.25
       j.speed = j.kind === 'video' ? Math.round((speed + Math.sin(Date.now() / 900) * 0.15) * 100) / 100 : undefined
@@ -764,13 +912,25 @@ export function createMockApi(): MediaApi {
         structural = true
         continue
       }
+      if (j.kind === 'file' && /locked/i.test(j.source) && j.progress >= 0.5) {
+        j.status = 'failed'
+        j.error = 'EBUSY: resource busy or locked'
+        j.finishedAt = Date.now()
+        runStats.failed++
+        structural = true
+        continue
+      }
       if (j.progress >= 1) {
         j.status = 'done'
         j.progress = 1
         j.etaSec = 0
-        j.outputSizeBytes = estimateOutputSize(j)
+        j.outputSizeBytes = j.kind === 'file' ? j.sourceInfo?.sizeBytes : estimateOutputSize(j)
         j.finishedAt = Date.now()
         runStats.done++
+        const op = j.file?.operation
+        if (j.kind === 'file' && (op === 'move' || op === 'rename') && j.outputPath && j.outputPath !== j.source) {
+          runJournal.push({ jobId: j.id, from: j.source, to: j.outputPath, op })
+        }
         structural = true
         continue
       }
@@ -783,6 +943,16 @@ export function createMockApi(): MediaApi {
       const active = jobs.some((j) => j.status === 'running' || j.status === 'queued')
       if (!active) {
         running = false
+        if (runJournal.length) {
+          undoJournal = runJournal.map(({ from, to }) => ({ from, to }))
+          undoInfo = {
+            id: `undo-${Date.now().toString(36)}`,
+            finishedAt: Date.now(),
+            count: runJournal.length,
+            operations: { move: runJournal.filter((r) => r.op === 'move').length, rename: runJournal.filter((r) => r.op === 'rename').length },
+          }
+          runJournal = []
+        }
         emitSnapshot()
         emit({ type: 'finished', summary: { ...runStats } })
         return
@@ -824,6 +994,20 @@ export function createMockApi(): MediaApi {
     jobs[3].output.dir = null
     jobs[4].output.dir = 'D:\\Exports\\2026 春季發表會'
     jobs[5].output.dir = 'D:\\Exports\\Social'
+    // relativeDir: folder adds remember the subfolder; this one is recreated below the output folder
+    jobs[8].relativeDir = 'product shots'
+    jobs[8].output = { ...jobs[8].output, dir: 'D:\\Exports\\Web', preserveStructure: true }
+    const copy = findPreset('builtin-file-copy') as FilePreset
+    jobs.push(
+      makeFileJob('E:\\DCIM\\100MSDCF\\DSC01234.ARW', copy, {
+        relativeDir: '100MSDCF',
+        output: { dir: 'D:\\Photos\\2026 京都', nameTemplate: '{exifdate}_{counter:3}', conflict: 'rename', preserveStructure: true },
+      }),
+      makeFileJob('E:\\DCIM\\100MSDCF\\DSC01235.JPG', copy, {
+        relativeDir: '100MSDCF',
+        output: { dir: 'D:\\Photos\\2026 京都', nameTemplate: '{exifdate}_{counter:3}', conflict: 'rename', preserveStructure: true },
+      }),
+    )
   }
 
   function corruptLog(src: string, encoder: string): string[] {
@@ -845,17 +1029,37 @@ export function createMockApi(): MediaApi {
     ]
   }
 
-  function expandFolder(dir: string, recursive: boolean): string[] {
+  function expandFolder(dir: string, recursive: boolean): { path: string; relativeDir: string }[] {
     const n = (hashStr(dir) % 3) + 2
-    const out: string[] = []
-    for (let i = 1; i <= n; i++) out.push(joinPath(dir, `IMG_${String(3000 + i)}.jpg`))
-    out.push(joinPath(dir, 'clip_01.mov'), joinPath(dir, 'notes.txt'), joinPath(dir, 'Thumbs.db'))
-    if (recursive) out.push(joinPath(joinPath(dir, 'Selects'), 'IMG_3100.png'), joinPath(joinPath(dir, 'Selects'), 'voiceover.m4a'))
+    const out: { path: string; relativeDir: string }[] = []
+    for (let i = n; i >= 1; i--) out.push({ path: joinPath(dir, `IMG_${String(3000 + i * 5)}.jpg`), relativeDir: '' })
+    out.push(
+      { path: joinPath(dir, 'clip_01.mov'), relativeDir: '' },
+      { path: joinPath(dir, 'notes.txt'), relativeDir: '' },
+      { path: joinPath(dir, 'Thumbs.db'), relativeDir: '' },
+    )
+    if (recursive) {
+      out.push(
+        { path: joinPath(joinPath(dir, 'Selects'), 'IMG_3100.png'), relativeDir: 'Selects' },
+        { path: joinPath(joinPath(dir, 'Selects'), 'voiceover.m4a'), relativeDir: 'Selects' },
+      )
+    }
     return out
   }
 
+  const isHiddenOrSystem = (p: string): boolean => /^(thumbs\.db|desktop\.ini|\.ds_store)$/i.test(fileName(p)) || fileName(p).startsWith('.')
+  const natural = (a: string, b: string): number => a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' })
+
   function applyPresetTo(job: Job, preset: Preset): boolean {
     if (job.status === 'running' || job.status === 'done' || job.status === 'skipped') return false
+    if ((job.kind === 'file') !== (preset.kind === 'file')) return false
+    if (preset.kind === 'file') {
+      job.presetId = preset.id
+      job.presetName = localName(preset)
+      job.file = { operation: preset.operation }
+      requeue(job)
+      return true
+    }
     if ((job.kind === 'image') !== (preset.kind === 'image')) return false
     if (job.sourceInfo?.kind === 'audio' && preset.kind === 'video' && !isAudioOnlyContainer(preset.settings.container)) return false
     job.presetId = preset.id
@@ -864,6 +1068,12 @@ export function createMockApi(): MediaApi {
     else job.image = { actions: clone(preset.actions), output: clone(preset.output) }
     requeue(job)
     return true
+  }
+
+  function sortPaths(list: { path: string; relativeDir?: string }[], sortBy: AddJobsRequest['sortBy']): void {
+    if (sortBy === 'modified') list.sort((a, b) => fakeMtime(a.path) - fakeMtime(b.path))
+    else if (sortBy === 'taken') list.sort((a, b) => (fakeTaken(a.path) ?? fakeMtime(a.path)) - (fakeTaken(b.path) ?? fakeMtime(b.path)))
+    else list.sort((a, b) => natural(a.relativeDir ?? '', b.relativeDir ?? '') || natural(fileName(a.path), fileName(b.path)))
   }
 
   function requeue(job: Job): void {
@@ -1026,26 +1236,60 @@ export function createMockApi(): MediaApi {
       await delay(150)
       const added: Job[] = []
       const ignored: string[] = []
-      const queue = [...req.paths]
-      const expanded: string[] = []
-      for (const p of queue) {
-        if (!extOf(p)) expanded.push(...expandFolder(p, !!req.recursive))
-        else expanded.push(p)
+      const fromFolder = req.paths.some((p) => !extOf(p))
+
+      // File mode: every file becomes a rename/copy/move job; never auto-starts (the user confirms a preview first).
+      const filePreset = req.filePresetId ? findPreset(req.filePresetId) : undefined
+      if (req.filePresetId) {
+        if (!filePreset || filePreset.kind !== 'file') throw new Error(`File preset not found: ${req.filePresetId}`)
+        const groups: { path: string; relativeDir?: string }[][] = []
+        for (const p of req.paths) {
+          if (!extOf(p)) {
+            const list = expandFolder(p, !!req.recursive).filter((e) => {
+              if (isHiddenOrSystem(e.path)) ignored.push(e.path)
+              return !isHiddenOrSystem(e.path)
+            })
+            sortPaths(list, req.sortBy)
+            groups.push(list)
+          } else groups.push([{ path: p }])
+        }
+        const flat = groups.flat()
+        if (groups.length > 1 && groups.every((g) => g.length === 1)) sortPaths(flat, req.sortBy)
+        for (const [idx, e] of flat.entries()) {
+          const job = makeFileJob(e.path, filePreset, { relativeDir: e.relativeDir, watchFolderId: req.watchFolderId })
+          fileCounters.set(job.id, idx + 1)
+          job.output = {
+            ...job.output,
+            preserveStructure: !!(fromFolder && (req.output?.dir ?? settings.defaultOutputDir) && settings.preserveStructure),
+            ...req.output,
+          }
+          jobs.push(job)
+          added.push(job)
+        }
+        settings.lastFilePresetId = filePreset.id
+        emitSnapshot()
+        return { jobs: clone(added), ignored }
       }
-      for (const p of expanded) {
+
+      const expanded: { path: string; relativeDir?: string }[] = []
+      for (const p of req.paths) {
+        if (!extOf(p)) expanded.push(...expandFolder(p, !!req.recursive))
+        else expanded.push({ path: p })
+      }
+      for (const { path: p, relativeDir } of expanded) {
         const kind = classifyPath(p)
         if (!kind) {
           ignored.push(p)
           continue
         }
         const presetId = kind === 'image' ? req.imagePresetId ?? settings.lastImagePresetId : req.videoPresetId ?? settings.lastVideoPresetId
-        const job = makeJob(p, presetId, { createdAt: Date.now(), watchFolderId: req.watchFolderId })
+        const job = makeJob(p, presetId, { createdAt: Date.now(), watchFolderId: req.watchFolderId, relativeDir })
         if (kind === 'image' && req.imageOverride) {
           job.image = clone(req.imageOverride)
           job.presetId = ''
           job.presetName = 'Custom'
         }
-        job.output = { ...job.output, ...req.output }
+        job.output = { ...job.output, preserveStructure: !!(relativeDir != null && job.output.dir && settings.preserveStructure), ...req.output }
         jobs.push(job)
         added.push(job)
       }
@@ -1078,6 +1322,13 @@ export function createMockApi(): MediaApi {
         if (patch.image.output) job.image.output = clone(patch.image.output)
         if (!patch.presetId && !job.presetName.endsWith('*')) job.presetName = `${job.presetName}*`
       }
+      if (patch.file?.operation && job.kind === 'file') {
+        job.file = { operation: patch.file.operation }
+        const p = findPreset(job.presetId)
+        const differs = p?.kind === 'file' && p.operation !== patch.file.operation
+        const base = job.presetName.replace(/\*$/, '')
+        job.presetName = differs ? `${base}*` : base
+      }
       if (patch.output) job.output = { ...job.output, ...patch.output }
       requeue(job)
       emitSnapshot()
@@ -1089,7 +1340,8 @@ export function createMockApi(): MediaApi {
       if (!p) throw new Error(`Preset not found: ${presetId}`)
       for (const j of jobs) if (jobIds.includes(j.id)) applyPresetTo(j, p)
       if (p.kind === 'video') settings.lastVideoPresetId = p.id
-      else settings.lastImagePresetId = p.id
+      else if (p.kind === 'image') settings.lastImagePresetId = p.id
+      else settings.lastFilePresetId = p.id
       emitSnapshot()
     },
     async duplicateJobs(ids: string[]): Promise<void> {
@@ -1145,6 +1397,7 @@ export function createMockApi(): MediaApi {
       await delay(40)
       running = true
       runStats = { done: 0, failed: 0, cancelled: 0, skipped: 0 }
+      planFileTargets()
       schedule()
       if (!jobs.some((j) => j.status === 'running' || j.status === 'queued')) running = false
       emitSnapshot()
@@ -1177,8 +1430,11 @@ export function createMockApi(): MediaApi {
       emitSnapshot()
     },
     onQueueEvent(cb: (e: QueueEvent) => void): () => void {
-      listeners.add(cb)
-      return () => listeners.delete(cb)
+      // A fresh wrapper per subscription (like ipcRenderer.on in the preload): React StrictMode subscribes the same
+      // callback twice and disposes the first one — with a plain Set that would drop the second subscription too.
+      const h = (e: QueueEvent): void => cb(e)
+      listeners.add(h)
+      return () => listeners.delete(h)
     },
 
     async getVideoFrame(path: string, timeSec: number, maxWidth = 960): Promise<string> {
@@ -1218,6 +1474,28 @@ export function createMockApi(): MediaApi {
         outWidth: r.w,
         outHeight: r.h,
       }
+    },
+
+    async previewFileOps(jobIds: string[]): Promise<FileOpPreviewItem[]> {
+      await delay(120)
+      const want = new Set(jobIds)
+      // Number each requested batch on its own, in queue order (what a fresh run of these jobs would do).
+      const list = jobs.filter((j) => want.has(j.id) && j.kind === 'file')
+      const map = fileTargets(list)
+      return list.map((j) => (running ? plannedTargets.get(j.id) : undefined) ?? map.get(j.id)!).filter(Boolean)
+    },
+    async getFileOpUndo(): Promise<FileOpUndoInfo | null> {
+      await delay(30)
+      return undoInfo ? clone(undoInfo) : null
+    },
+    async undoFileOps(): Promise<FileOpUndoResult> {
+      await delay(400)
+      if (!undoInfo) return { restored: 0, failed: [] }
+      const failed = undoJournal.filter((e) => /locked/i.test(e.to)).map((e) => ({ path: e.to, error: 'EBUSY: resource busy or locked' }))
+      const restored = undoJournal.length - failed.length
+      undoInfo = null
+      undoJournal = []
+      return { restored, failed }
     },
 
     async listWatchFolders(): Promise<WatchFolder[]> {

@@ -1,16 +1,18 @@
 // Presets screen — right column: name / category header, save bar, and the video or image editor.
 import { CircleAlert, Film, Image as ImageIcon, Info, Lock, Music, Save, SlidersHorizontal, Sparkles, TriangleAlert, Undo2, UserRound } from 'lucide-react'
-import type { ImagePreset, Preset, PresetCategory, VideoPreset } from '../../../../shared/types'
+import type { FilePreset, ImagePreset, Preset, PresetCategory, VideoPreset } from '../../../../shared/types'
 import { validateVideoSettings } from '../../../../shared/videoRules'
 import { useLocale, useT } from '../../store'
 import type { MessageKey } from '../../i18n'
 import { isAudioPreset, presetDescription, presetName } from '../../lib/presets'
 import { presetSummary } from '../../lib/labels'
+import { FILE_OPS, FILE_OP_DESC, FILE_OP_ICON, FILE_OP_LABEL } from '../../lib/fileops'
 import { VideoSettingsForm } from '../../editors/VideoSettingsForm'
 import { ActionsPanel } from '../../editors/ImageActions'
 import { ImageOutputForm, ImagePreviewPane } from '../../editors/ImageChainEditor'
 import { Button, Select, TextInput, cx } from '../../components/ui'
 import {
+  FILE_CATEGORIES,
   IMAGE_CATEGORIES,
   VIDEO_CATEGORIES,
   draftIssues,
@@ -38,7 +40,7 @@ export function PresetEditor() {
         <SlidersHorizontal size={30} aria-hidden />
         <p>{t('presetsView.noSelection')}</p>
         <Button icon={Sparkles} onClick={() => void newPreset()}>
-          {kind === 'video' ? t('presetsView.newVideo') : t('presetsView.newImage')}
+          {kind === 'video' ? t('presetsView.newVideo') : kind === 'image' ? t('presetsView.newImage') : t('presetsView.newFile')}
         </Button>
       </section>
     )
@@ -51,8 +53,8 @@ export function PresetEditor() {
   const videoErrors = draft.kind === 'video' ? validateVideoSettings(draft.settings).filter((i) => i.level === 'error').length : 0
   const name = presetName(draft, locale)
   const desc = presetDescription(draft, locale)
-  const Icon = draft.kind === 'image' ? ImageIcon : isAudioPreset(draft) ? Music : Film
-  const categories = draft.kind === 'video' ? VIDEO_CATEGORIES : IMAGE_CATEGORIES
+  const Icon = draft.kind === 'file' ? FILE_OP_ICON[draft.operation] : draft.kind === 'image' ? ImageIcon : isAudioPreset(draft) ? Music : Film
+  const categories = draft.kind === 'video' ? VIDEO_CATEGORIES : draft.kind === 'image' ? IMAGE_CATEGORIES : FILE_CATEGORIES
   const canSave = !blocked && !saving && (dirty || builtIn)
   const saveTitle = blocked
     ? videoErrors
@@ -140,7 +142,13 @@ export function PresetEditor() {
         )}
       </header>
 
-      {draft.kind === 'video' ? <VideoBody draft={draft} editorKey={selectedId ?? 'new'} /> : <ImageBody draft={draft} editorKey={selectedId ?? 'new'} />}
+      {draft.kind === 'video' ? (
+        <VideoBody draft={draft} editorKey={selectedId ?? 'new'} />
+      ) : draft.kind === 'image' ? (
+        <ImageBody draft={draft} editorKey={selectedId ?? 'new'} />
+      ) : (
+        <FileBody draft={draft} />
+      )}
     </section>
   )
 }
@@ -163,6 +171,57 @@ function ImageBody({ draft, editorKey }: { draft: ImagePreset; editorKey: string
           <ImageOutputForm output={draft.output} onChange={(output) => updateDraft({ ...draft, output })} />
         </div>
         <ImagePreviewPane actions={draft.actions} output={draft.output} />
+      </div>
+    </div>
+  )
+}
+
+function FileBody({ draft }: { draft: FilePreset }) {
+  const t = useT()
+  const locale = useLocale()
+  const desc = presetDescription(draft, locale)
+  return (
+    <div className="pv-editor-body pv-file-body">
+      <section className="pv-file-section">
+        <h3 className="fo-h">{t('fileops.operation')}</h3>
+        <div className="fo-ops" role="radiogroup" aria-label={t('fileops.operation')}>
+          {FILE_OPS.map((op) => {
+            const OpIcon = FILE_OP_ICON[op]
+            return (
+              <button
+                key={op}
+                type="button"
+                role="radio"
+                aria-checked={draft.operation === op}
+                className={cx('fo-op', draft.operation === op && 'active', `op-${op}`)}
+                onClick={() => updateDraft({ ...draft, operation: op })}
+              >
+                <span className="fo-op-icon" aria-hidden>
+                  <OpIcon size={16} />
+                </span>
+                <span className="fo-op-text">
+                  <span className="fo-op-name">{t(FILE_OP_LABEL[op])}</span>
+                  <span className="fo-op-desc">{t(FILE_OP_DESC[op])}</span>
+                </span>
+              </button>
+            )
+          })}
+        </div>
+      </section>
+      <section className="pv-file-section">
+        <h3 className="fo-h">{t('common.description')}</h3>
+        <TextInput
+          value={desc}
+          onChange={(v) => updateDraft({ ...draft, description: v, descriptions: undefined })}
+          placeholder={t('presetsView.fileDescPlaceholder')}
+          aria-label={t('common.description')}
+          maxLength={300}
+          className="pv-file-desc"
+        />
+      </section>
+      <div className="pv-note pv-file-note">
+        <Info size={14} aria-hidden />
+        <span>{t('presetsView.fileNote')}</span>
       </div>
     </div>
   )

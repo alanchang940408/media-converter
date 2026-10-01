@@ -57,7 +57,7 @@ export function PresetsView() {
   return (
     <div className="presets-view">
       <div className="toolbar pv-toolbar" role="toolbar" aria-label={t('presetsView.toolbar')}>
-        <Button icon={Plus} onClick={() => void newPreset()} title={kind === 'video' ? t('presetsView.newVideo') : t('presetsView.newImage')}>
+        <Button icon={Plus} onClick={() => void newPreset()} title={kind === 'video' ? t('presetsView.newVideo') : kind === 'image' ? t('presetsView.newImage') : t('presetsView.newFile')}>
           {t('presetsView.new')}
         </Button>
         <Button variant="ghost" icon={CopyPlus} disabled={!selected} onClick={() => void duplicatePreset()} title={t('presetsView.duplicateHint')}>

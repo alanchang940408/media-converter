@@ -18,7 +18,8 @@ export function WatchCard({ w }: { w: WatchFolder }) {
   const addBtn = useRef<HTMLButtonElement>(null)
 
   const save = (patch: Partial<WatchFolder>): void => void saveWatchFolder({ ...w, ...patch })
-  const chosen = w.presetIds.map((id) => ({ id, preset: presets.find((p) => p.id === id) ?? null }))
+  // File-operation presets cannot run in a watch folder: treat them like a missing preset.
+  const chosen = w.presetIds.map((id) => ({ id, preset: presets.find((p) => p.id === id && p.kind !== 'file') ?? null }))
   const valid = chosen.filter((c) => c.preset)
   const hasVideo = valid.some((c) => c.preset!.kind === 'video')
   const hasImage = valid.some((c) => c.preset!.kind === 'image')
@@ -125,7 +126,7 @@ export function WatchCard({ w }: { w: WatchFolder }) {
         <div className="wf-field">
           <div className="wf-label">{t('watch.options')}</div>
           <div className="wf-control wf-options">
-            <Checkbox checked={w.includeSubfolders} onChange={(includeSubfolders) => save({ includeSubfolders })} label={t('watch.subfolders')} title={t('watch.subfoldersHint')} />
+            <Checkbox checked={w.includeSubfolders} onChange={(includeSubfolders) => save({ includeSubfolders })} label={t('watch.subfolders')} title={`${t('watch.subfoldersHint')} ${t('watch.subfoldersStructure')}`} />
             <Checkbox checked={w.processExisting} onChange={(processExisting) => save({ processExisting })} label={t('watch.existing')} title={t('watch.existingHint')} />
           </div>
         </div>

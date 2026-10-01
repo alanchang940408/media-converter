@@ -1,6 +1,6 @@
 // Lazy thumbnail (IntersectionObserver → api.getThumbnail, cached per path).
 import { useEffect, useRef, useState } from 'react'
-import { Film, Image as ImageIcon, Music } from 'lucide-react'
+import { File as FileIcon, Film, Image as ImageIcon, Music } from 'lucide-react'
 import type { MediaKind } from '../../../shared/types'
 import { api } from '../api'
 import { cx } from './ui'
@@ -26,19 +26,23 @@ function load(path: string, size: number): Promise<string | null> {
   return p
 }
 
-export function KindIcon({ kind, size = 18 }: { kind: MediaKind; size?: number }) {
+/** 'file' = any file that is not a supported media type (shown with a generic icon, no thumbnail). */
+export type ThumbKind = MediaKind | 'file'
+
+export function KindIcon({ kind, size = 18 }: { kind: ThumbKind; size?: number }) {
+  if (kind === 'file') return <FileIcon size={size} aria-hidden />
   if (kind === 'audio') return <Music size={size} aria-hidden />
   if (kind === 'image') return <ImageIcon size={size} aria-hidden />
   return <Film size={size} aria-hidden />
 }
 
-export function Thumb({ path, kind, size = 160, className }: { path: string; kind: MediaKind; size?: number; className?: string }) {
+export function Thumb({ path, kind, size = 160, className }: { path: string; kind: ThumbKind; size?: number; className?: string }) {
   const key = `${size}|${path}`
   const [url, setUrl] = useState<string | null | undefined>(() => (cache.has(key) ? cache.get(key) : undefined))
   const ref = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
-    if (kind === 'audio') return
+    if (kind === 'audio' || kind === 'file') return
     if (cache.has(key)) {
       setUrl(cache.get(key))
       return
@@ -71,7 +75,7 @@ export function Thumb({ path, kind, size = 160, className }: { path: string; kin
   }, [key, kind, path, size])
 
   return (
-    <div ref={ref} className={cx('thumb', `thumb-${kind}`, url === undefined && kind !== 'audio' && 'loading', className)}>
+    <div ref={ref} className={cx('thumb', `thumb-${kind}`, url === undefined && kind !== 'audio' && kind !== 'file' && 'loading', className)}>
       {url ? <img src={url} alt="" draggable={false} /> : <KindIcon kind={kind} size={kind === 'audio' ? 20 : 18} />}
     </div>
   )

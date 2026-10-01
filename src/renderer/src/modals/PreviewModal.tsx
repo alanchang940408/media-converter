@@ -32,7 +32,8 @@ import { ImagePreviewPane } from '../editors/ImageChainEditor'
 export function PreviewModal() {
   const id = useStore((s) => s.previewJobId)
   const job = useStore((s) => (s.previewJobId ? s.jobs.find((j) => j.id === s.previewJobId) : undefined))
-  if (!id || !job) return null
+  // File jobs (rename / copy / move) have nothing to preview.
+  if (!id || !job || job.kind === 'file') return null
   return <PreviewDialog key={job.id} job={job} />
 }
 

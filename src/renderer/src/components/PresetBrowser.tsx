@@ -1,12 +1,13 @@
 // Queue sidebar: searchable preset list; click to select, apply to selected jobs, or drag onto a row.
 import { useEffect, useMemo, useState } from 'react'
-import { ChevronDown, ChevronRight, Film, Image as ImageIcon, Lock, Music, PanelRightClose, Search, Settings2, X } from 'lucide-react'
+import { ChevronDown, ChevronRight, FilePen, Film, Image as ImageIcon, Lock, Music, PanelRightClose, Search, Settings2, X } from 'lucide-react'
 import type { Preset } from '../../../shared/types'
 import { applyPreset, setView, toast, togglePresetBrowser, tNow, useLocale, useStore, useT } from '../store'
 import type { MessageKey } from '../i18n'
 import { groupByCategory, isAudioPreset, isEditableJob, isPresetCompatible, presetDescription, presetName } from '../lib/presets'
 import { presetSummary } from '../lib/labels'
 import { DND_PRESET, dragState } from '../lib/dnd'
+import { FILE_OP_ICON } from '../lib/fileops'
 import { Button, IconButton, Segmented, cx } from './ui'
 
 export function PresetBrowser() {
@@ -15,7 +16,7 @@ export function PresetBrowser() {
   const presets = useStore((s) => s.presets)
   const jobs = useStore((s) => s.jobs)
   const selected = useStore((s) => s.selected)
-  const [tab, setTab] = useState<'video' | 'image'>('video')
+  const [tab, setTab] = useState<'video' | 'image' | 'file'>('video')
   const [q, setQ] = useState('')
   const [sel, setSel] = useState<string | null>(null)
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set())
@@ -27,12 +28,13 @@ export function PresetBrowser() {
     if (!selectedJobs.length) return
     if (selectedJobs.every((j) => j.kind === 'image')) setTab('image')
     else if (selectedJobs.every((j) => j.kind === 'video')) setTab('video')
+    else if (selectedJobs.every((j) => j.kind === 'file')) setTab('file')
   }, [selectedJobs])
 
   const filtered = useMemo(() => {
     const needle = q.trim().toLowerCase()
     return presets.filter((p) => {
-      if ((tab === 'image') !== (p.kind === 'image')) return false
+      if (p.kind !== tab) return false
       if (!needle) return true
       return (
         presetName(p, locale).toLowerCase().includes(needle) ||
@@ -82,6 +84,7 @@ export function PresetBrowser() {
           options={[
             { value: 'video', label: t('browser.video'), icon: Film },
             { value: 'image', label: t('browser.image'), icon: ImageIcon },
+            { value: 'file', label: t('browser.file'), icon: FilePen, title: t('presetsView.kindFileHint') },
           ]}
         />
         <div className="search-field">
@@ -108,7 +111,7 @@ export function PresetBrowser() {
               </button>
               {!isCollapsed &&
                 list.map((p) => {
-                  const Icon = p.kind === 'image' ? ImageIcon : isAudioPreset(p) ? Music : Film
+                  const Icon = p.kind === 'file' ? FILE_OP_ICON[p.operation] : p.kind === 'image' ? ImageIcon : isAudioPreset(p) ? Music : Film
                   const desc = presetDescription(p, locale)
                   return (
                     <div
