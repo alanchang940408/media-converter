@@ -1,0 +1,14 @@
+node_modules/
+out/
+dist/
+release/
+resources/bin/
+test-media/
+test-output/
+e2e/screenshots/
+e2e/.tmp/
+test-results/
+playwright-report/
+*.log
+.DS_Store
+Thumbs.db
