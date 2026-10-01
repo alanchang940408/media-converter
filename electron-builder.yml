@@ -1,0 +1,112 @@
+# electron-builder configuration — https://www.electron.build/configuration
+# Build:  npm run build  →  npx electron-builder --win | --mac | --linux
+# ffmpeg: node scripts/fetch-ffmpeg.mjs first (fills resources/bin/<platform>-<arch>, shipped as <resources>/bin).
+# No code signing: Windows SmartScreen / macOS Gatekeeper will warn on first launch (see README).
+appId: app.mediaconverter.desktop
+productName: Media Converter
+copyright: Copyright © 2026 Media Converter contributors
+
+directories:
+  output: release
+  buildResources: build
+
+files:
+  - out/**
+  - package.json
+  - '!src{,/**}'
+  - '!tests{,/**}'
+  - '!e2e{,/**}'
+  - '!scripts{,/**}'
+  - '!test-media{,/**}'
+  - '!test-output{,/**}'
+  - '!docs{,/**}'
+
+asar: true
+# sharp loads a native addon + libvips shared libraries, which cannot be read from inside an asar archive
+asarUnpack:
+  - '**/node_modules/sharp/**'
+  - '**/node_modules/@img/**'
+
+# ffmpeg/ffprobe: each platform section below adds resources/bin/<platform>-${arch} → <resources>/bin
+# (named explicitly because the ${platform} macro expands to the *host* platform).
+extraResources:
+  - from: THIRD_PARTY_NOTICES.md
+    to: THIRD_PARTY_NOTICES.md
+  - from: LICENSE
+    to: LICENSE.txt
+
+# Chromium locale packs to ship (~45 MB saved). The app resolves 'auto' language via app.getLocale(),
+# which falls back to en-US when the system locale's pack is missing — keep every UI language here.
+electronLanguages: [en-US, zh-TW, zh-CN, ja]
+
+# sharp ships N-API prebuilt binaries per platform; nothing to compile
+npmRebuild: false
+publish: null
+
+win:
+  icon: build/icon.ico
+  extraResources:
+    - from: resources/bin/win32-${arch}
+      to: bin
+      filter:
+        - '**/*'
+  target:
+    - target: nsis
+      arch: [x64]
+    - target: portable
+      arch: [x64]
+
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: Media Converter
+  installerLanguages: [zh_TW, en_US, ja_JP]
+  multiLanguageInstaller: true
+  artifactName: ${productName}-Setup-${version}.${ext}
+
+portable:
+  artifactName: ${productName}-Portable-${version}.${ext}
+
+mac:
+  icon: build/icon.png
+  extraResources:
+    - from: resources/bin/darwin-${arch}
+      to: bin
+      filter:
+        - '**/*'
+  category: public.app-category.video
+  hardenedRuntime: false
+  # unsigned build (users approve it once in System Settings → Privacy & Security)
+  identity: null
+  target:
+    - target: dmg
+      arch: [x64, arm64]
+
+dmg:
+  artifactName: ${productName}-${version}-${arch}.${ext}
+
+linux:
+  icon: build/icon.png
+  extraResources:
+    - from: resources/bin/linux-${arch}
+      to: bin
+      filter:
+        - '**/*'
+  category: AudioVideo
+  executableName: media-converter
+  synopsis: Batch video, audio and image converter
+  maintainer: Media Converter contributors
+  target:
+    - target: AppImage
+      arch: [x64]
+    - target: deb
+      arch: [x64]
+
+appImage:
+  artifactName: media-converter-${version}-${arch}.${ext}
+
+deb:
+  artifactName: media-converter_${version}_${arch}.${ext}

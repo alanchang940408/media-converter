@@ -1,0 +1,45 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <!-- Media Converter app icon: a photo card behind a video card with a play button (video + image conversion). -->
+  <defs>
+    <linearGradient id="bg" x1="0.1" y1="0" x2="0.9" y2="1">
+      <stop offset="0" stop-color="#3D7BFF"/>
+      <stop offset="0.5" stop-color="#7B5CFA"/>
+      <stop offset="1" stop-color="#F2557F"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="0.22" cy="0.12" r="0.85">
+      <stop offset="0" stop-color="#FFFFFF" stop-opacity="0.32"/>
+      <stop offset="0.6" stop-color="#FFFFFF" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="play" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#5468FF"/>
+      <stop offset="1" stop-color="#E9468A"/>
+    </linearGradient>
+    <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FFFFFF" stop-opacity="0.30"/>
+      <stop offset="1" stop-color="#FFFFFF" stop-opacity="0.12"/>
+    </linearGradient>
+    <clipPath id="photo">
+      <rect x="196" y="236" width="452" height="356" rx="44"/>
+    </clipPath>
+    <filter id="shadow" x="-30%" y="-30%" width="160%" height="170%">
+      <feDropShadow dx="0" dy="22" stdDeviation="26" flood-color="#1B1150" flood-opacity="0.38"/>
+    </filter>
+  </defs>
+
+  <rect x="64" y="64" width="896" height="896" rx="208" fill="url(#bg)"/>
+  <rect x="64" y="64" width="896" height="896" rx="208" fill="url(#glow)"/>
+
+  <!-- photo card -->
+  <g transform="rotate(-11 422 414)">
+    <g clip-path="url(#photo)">
+      <rect x="196" y="236" width="452" height="356" fill="url(#sky)"/>
+      <circle cx="540" cy="330" r="44" fill="#FFD66B"/>
+      <path d="M150 600 L318 418 Q330 405 343 418 L470 552 L520 500 Q532 488 544 500 L680 640 Z" fill="#FFFFFF" fill-opacity="0.92"/>
+    </g>
+    <rect x="196" y="236" width="452" height="356" rx="44" fill="none" stroke="#FFFFFF" stroke-width="24"/>
+  </g>
+
+  <!-- video card -->
+  <rect x="372" y="430" width="476" height="356" rx="64" fill="#FFFFFF" filter="url(#shadow)"/>
+  <path d="M566 534 L566 682 L694 608 Z" fill="url(#play)" stroke="url(#play)" stroke-width="34" stroke-linejoin="round"/>
+</svg>

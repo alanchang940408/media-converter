@@ -1,0 +1,107 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build (${{ matrix.name }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: windows
+            os: windows-latest
+            # BtbN build is pinned and verified locally: every required encoder must be present
+            ffmpeg: node scripts/fetch-ffmpeg.mjs --strict
+            dist: npx electron-builder --win --publish never
+          - name: macos
+            os: macos-latest
+            # one dmg per architecture → ffmpeg for both
+            ffmpeg: node scripts/fetch-ffmpeg.mjs --arch x64,arm64
+            dist: npx electron-builder --mac --publish never
+          - name: linux
+            os: ubuntu-latest
+            ffmpeg: node scripts/fetch-ffmpeg.mjs
+            dist: npx electron-builder --linux --publish never
+    env:
+      # unsigned builds: do not look for signing identities in the keychain / cert store
+      CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      # macos-latest is Apple Silicon; npm only installs sharp's arm64 binaries, the x64 dmg needs the Intel ones too
+      - name: Add sharp binaries for darwin-x64
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          SHARP=$(node -p "require('./node_modules/sharp/package.json').optionalDependencies['@img/sharp-darwin-x64']")
+          VIPS=$(node -p "require('./node_modules/sharp/package.json').optionalDependencies['@img/sharp-libvips-darwin-x64']")
+          npm install --no-save --force "@img/sharp-darwin-x64@$SHARP" "@img/sharp-libvips-darwin-x64@$VIPS"
+
+      - name: Cache ffmpeg downloads
+        uses: actions/cache@v4
+        with:
+          path: resources/bin/.cache
+          key: ffmpeg-${{ runner.os }}-${{ hashFiles('scripts/fetch-ffmpeg.mjs') }}
+
+      - name: Fetch ffmpeg
+        run: ${{ matrix.ffmpeg }}
+
+      - name: Build app
+        run: npm run build
+
+      - name: Package
+        run: ${{ matrix.dist }}
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: media-converter-${{ matrix.name }}
+          if-no-files-found: error
+          retention-days: 30
+          path: |
+            release/*.exe
+            release/*.dmg
+            release/*.AppImage
+            release/*.deb
+
+  draft-release:
+    name: Draft GitHub release
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Create draft release with all installers
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          ls -la dist
+          gh release create "$TAG" dist/* --repo "$GITHUB_REPOSITORY" --draft --title "Media Converter $TAG" \
+            --notes "Unsigned builds: Windows SmartScreen and macOS Gatekeeper will warn on first launch (see README). Bundled FFmpeg is GPL-3.0-or-later; see THIRD_PARTY_NOTICES.md for its source."

@@ -1,0 +1,407 @@
+// Global UI state (zustand) + actions that wrap window.api calls with error toasts.
+import { useMemo } from 'react'
+import { create } from 'zustand'
+import type {
+  AppInfo,
+  AppSettings,
+  EncoderCapabilities,
+  Job,
+  JobPatch,
+  Locale,
+  Preset,
+  QueueEvent,
+  WatchFolder,
+} from '../../shared/types'
+import { api } from './api'
+import { makeT, type MessageKey, type TFunc } from './i18n'
+import { fileName } from './lib/format'
+
+export type View = 'queue' | 'presets' | 'watch'
+export type SettingsTab = 'general' | 'output' | 'performance' | 'about'
+
+export interface Toast {
+  id: number
+  kind: 'info' | 'success' | 'error'
+  text: string
+  detail?: string
+}
+
+export interface DialogRequest {
+  kind: 'confirm' | 'prompt'
+  title: string
+  message?: string
+  label?: string
+  value?: string
+  confirmLabel?: string
+  danger?: boolean
+  resolve: (v: string | boolean | null) => void
+}
+
+export const DEFAULT_SETTINGS: AppSettings = {
+  language: 'auto',
+  theme: 'dark',
+  videoConcurrency: 1,
+  imageConcurrency: 4,
+  autoStart: false,
+  defaultOutputDir: null,
+  defaultNameTemplate: '{name}',
+  conflict: 'rename',
+  preferredHw: 'auto',
+  lastVideoPresetId: '',
+  lastImagePresetId: '',
+  notifyOnFinish: true,
+  preventSleep: true,
+  removeFinished: false,
+  ffmpegPath: null,
+}
+
+export interface AppState {
+  ready: boolean
+  loadError: string | null
+  appInfo: AppInfo | null
+  caps: EncoderCapabilities | null
+  capsLoading: boolean
+  settings: AppSettings
+  presets: Preset[]
+  jobs: Job[]
+  running: boolean
+  watchFolders: WatchFolder[]
+  view: View
+  selected: string[]
+  anchor: string | null
+  editorJobId: string | null
+  previewJobId: string | null
+  settingsTab: SettingsTab | null
+  presetBrowserOpen: boolean
+  toasts: Toast[]
+  dialog: DialogRequest | null
+}
+
+const LS_BROWSER = 'mc-preset-browser-open'
+
+function readBool(key: string, fallback: boolean): boolean {
+  try {
+    const v = localStorage.getItem(key)
+    return v == null ? fallback : v === '1'
+  } catch {
+    return fallback
+  }
+}
+
+function writeBool(key: string, v: boolean): void {
+  try {
+    localStorage.setItem(key, v ? '1' : '0')
+  } catch {
+    /* ignore */
+  }
+}
+
+export const useStore = create<AppState>(() => ({
+  ready: false,
+  loadError: null,
+  appInfo: null,
+  caps: null,
+  capsLoading: false,
+  settings: DEFAULT_SETTINGS,
+  presets: [],
+  jobs: [],
+  running: false,
+  watchFolders: [],
+  view: 'queue',
+  selected: [],
+  anchor: null,
+  editorJobId: null,
+  previewJobId: null,
+  settingsTab: null,
+  presetBrowserOpen: readBool(LS_BROWSER, true),
+  toasts: [],
+  dialog: null,
+}))
+
+const set = useStore.setState
+const get = useStore.getState
+
+// ───────────────────────────── i18n hooks ─────────────────────────────
+
+export function selectLocale(s: AppState): Locale {
+  if (s.settings.language !== 'auto') return s.settings.language
+  return s.appInfo?.locale ?? 'zh-TW'
+}
+
+export function useLocale(): Locale {
+  return useStore(selectLocale)
+}
+
+export function useT(): TFunc {
+  const locale = useLocale()
+  return useMemo(() => makeT(locale), [locale])
+}
+
+/** Translate outside React (actions, toasts). */
+export function tNow(key: MessageKey, params?: Record<string, string | number>): string {
+  return makeT(selectLocale(get()))(key, params)
+}
+
+// ───────────────────────────── toasts / dialogs ─────────────────────────────
+
+let toastSeq = 0
+
+export function toast(kind: Toast['kind'], text: string, detail?: string): void {
+  const id = ++toastSeq
+  set((s) => ({ toasts: [...s.toasts.slice(-4), { id, kind, text, detail }] }))
+  setTimeout(() => dismissToast(id), kind === 'error' ? 8000 : 4000)
+}
+
+export function dismissToast(id: number): void {
+  set((s) => ({ toasts: s.toasts.filter((t) => t.id !== id) }))
+}
+
+function errorText(err: unknown): string {
+  if (err instanceof Error) return err.message.replace(/^Error invoking remote method '[^']+': (Error: )?/, '')
+  return String(err)
+}
+
+/** Run an api call; failures become an error toast instead of an unhandled rejection. */
+export async function guard<T>(fn: () => Promise<T>, failKey: MessageKey = 'toast.actionFailed'): Promise<T | undefined> {
+  try {
+    return await fn()
+  } catch (err) {
+    console.error(err)
+    toast('error', tNow(failKey), errorText(err))
+    return undefined
+  }
+}
+
+export function confirmDialog(opts: { title: string; message?: string; confirmLabel?: string; danger?: boolean }): Promise<boolean> {
+  return new Promise((resolve) => {
+    set({ dialog: { kind: 'confirm', ...opts, resolve: (v) => resolve(v === true) } })
+  })
+}
+
+export function promptDialog(opts: { title: string; label?: string; value?: string; confirmLabel?: string }): Promise<string | null> {
+  return new Promise((resolve) => {
+    set({ dialog: { kind: 'prompt', ...opts, resolve: (v) => resolve(typeof v === 'string' ? v : null) } })
+  })
+}
+
+export function closeDialog(value: string | boolean | null): void {
+  const d = get().dialog
+  set({ dialog: null })
+  d?.resolve(value)
+}
+
+// ───────────────────────────── loading ─────────────────────────────
+
+function setJobs(jobs: Job[], running?: boolean): void {
+  set((s) => {
+    const ids = new Set(jobs.map((j) => j.id))
+    const selected = s.selected.filter((id) => ids.has(id))
+    return {
+      jobs,
+      running: running ?? s.running,
+      selected,
+      anchor: s.anchor && ids.has(s.anchor) ? s.anchor : null,
+      editorJobId: s.editorJobId && ids.has(s.editorJobId) ? s.editorJobId : null,
+      previewJobId: s.previewJobId && ids.has(s.previewJobId) ? s.previewJobId : null,
+    }
+  })
+}
+
+function onQueueEvent(e: QueueEvent): void {
+  if (e.type === 'snapshot') {
+    setJobs(e.state.jobs, e.state.running)
+  } else if (e.type === 'progress') {
+    const map = new Map(e.items.map((i) => [i.id, i]))
+    set((s) => ({
+      jobs: s.jobs.map((j) => {
+        const p = map.get(j.id)
+        return p && j.status === 'running' ? { ...j, ...p } : j
+      }),
+    }))
+  } else if (e.type === 'finished') {
+    const { done, failed, cancelled, skipped } = e.summary
+    toast(failed ? 'error' : 'success', tNow('toast.queueFinished', { done, failed }), cancelled || skipped ? tNow('toast.queueFinishedExtra', { cancelled, skipped }) : undefined)
+  }
+}
+
+export async function init(): Promise<() => void> {
+  const unsubs: (() => void)[] = []
+  unsubs.push(api.onQueueEvent(onQueueEvent))
+  unsubs.push(
+    api.onExternalFiles((paths) => {
+      set({ view: 'queue' })
+      void addPaths(paths, true)
+    }),
+  )
+  try {
+    const [appInfo, settings, presets, queue, watchFolders] = await Promise.all([
+      api.getAppInfo(),
+      api.getSettings(),
+      api.listPresets(),
+      api.getQueue(),
+      api.listWatchFolders(),
+    ])
+    set({ appInfo, settings, presets, watchFolders, ready: true })
+    setJobs(queue.jobs, queue.running)
+  } catch (err) {
+    console.error(err)
+    set({ ready: true, loadError: errorText(err) })
+  }
+  void refreshCaps(false)
+  return () => unsubs.forEach((u) => u())
+}
+
+export async function refreshCaps(force: boolean): Promise<void> {
+  set({ capsLoading: true })
+  const caps = await guard(() => api.getCapabilities(force), 'toast.capsFailed')
+  set((s) => ({ caps: caps ?? s.caps, capsLoading: false }))
+  if (caps && force) toast('success', tNow('toast.capsRefreshed'))
+}
+
+export async function refreshPresets(): Promise<Preset[]> {
+  const presets = await guard(() => api.listPresets())
+  if (presets) set({ presets })
+  return presets ?? get().presets
+}
+
+export async function refreshQueue(): Promise<void> {
+  const q = await guard(() => api.getQueue())
+  if (q) setJobs(q.jobs, q.running)
+}
+
+export async function refreshWatchFolders(): Promise<void> {
+  const list = await guard(() => api.listWatchFolders())
+  if (list) set({ watchFolders: list })
+}
+
+// ───────────────────────────── settings ─────────────────────────────
+
+export async function saveSettings(patch: Partial<AppSettings>): Promise<void> {
+  const prev = get().settings
+  set({ settings: { ...prev, ...patch } })
+  const saved = await guard(() => api.saveSettings(patch), 'toast.settingsFailed')
+  if (saved) set({ settings: saved })
+  else set({ settings: prev })
+}
+
+// ───────────────────────────── queue actions ─────────────────────────────
+
+export async function addPaths(paths: string[], recursive = true): Promise<void> {
+  if (!paths.length) return
+  const res = await guard(() => api.addJobs({ paths, recursive }), 'toast.addFailed')
+  if (!res) return
+  const added = res.jobs.length
+  const ignored = res.ignored.length
+  if (added && ignored) toast('info', tNow('toast.addedIgnored', { added, ignored }), res.ignored.slice(0, 4).map(fileName).join(', ') + (ignored > 4 ? ' …' : ''))
+  else if (added) toast('success', tNow('toast.added', { added }))
+  else if (ignored) toast('error', tNow('toast.nothingAdded', { ignored }), res.ignored.slice(0, 4).map(fileName).join(', ') + (ignored > 4 ? ' …' : ''))
+  await refreshQueue()
+  if (added) set({ selected: res.jobs.map((j) => j.id), anchor: res.jobs[0]?.id ?? null })
+}
+
+export async function addFilesDialog(): Promise<void> {
+  const paths = await guard(() => api.pickFiles('media', true))
+  if (paths?.length) await addPaths(paths, false)
+}
+
+export async function addFolderDialog(): Promise<void> {
+  const dir = await guard(() => api.pickFolder(tNow('dialog.addFolderTitle')))
+  if (dir) await addPaths([dir], true)
+}
+
+export async function removeJobs(ids: string[]): Promise<void> {
+  if (!ids.length) return
+  const running = get().jobs.filter((j) => ids.includes(j.id) && j.status === 'running')
+  if (running.length) {
+    const ok = await confirmDialog({
+      title: tNow('confirm.removeRunningTitle'),
+      message: tNow('confirm.removeRunningBody', { n: running.length }),
+      confirmLabel: tNow('common.remove'),
+      danger: true,
+    })
+    if (!ok) return
+  }
+  await guard(() => api.removeJobs(ids))
+  await refreshQueue()
+}
+
+export async function duplicateJobs(ids: string[]): Promise<void> {
+  if (!ids.length) return
+  await guard(() => api.duplicateJobs(ids))
+  await refreshQueue()
+}
+
+export async function clearFinished(): Promise<void> {
+  await guard(() => api.clearFinished())
+  await refreshQueue()
+}
+
+export async function retryJobs(ids: string[]): Promise<void> {
+  await guard(() => api.retryJobs(ids))
+  await refreshQueue()
+}
+
+export async function cancelJobs(ids: string[]): Promise<void> {
+  await guard(() => api.cancelJobs(ids))
+  await refreshQueue()
+}
+
+export async function reorderJobs(ids: string[]): Promise<void> {
+  const byId = new Map(get().jobs.map((j) => [j.id, j]))
+  set({ jobs: ids.map((id) => byId.get(id)).filter((j): j is Job => !!j) })
+  await guard(() => api.reorderJobs(ids))
+  await refreshQueue()
+}
+
+export async function applyPreset(ids: string[], presetId: string): Promise<boolean> {
+  if (!ids.length) return false
+  const ok = await guard(() => api.applyPreset(ids, presetId).then(() => true))
+  await refreshQueue()
+  return !!ok
+}
+
+export async function updateJob(id: string, patch: JobPatch): Promise<Job | undefined> {
+  const job = await guard(() => api.updateJob(id, patch), 'toast.updateFailed')
+  await refreshQueue()
+  return job
+}
+
+export async function startQueue(): Promise<void> {
+  await guard(() => api.startQueue())
+  await refreshQueue()
+}
+
+export async function stopQueue(): Promise<void> {
+  await guard(() => api.stopQueue())
+  await refreshQueue()
+}
+
+export async function setJobsOutputDir(ids: string[], dir: string | null): Promise<void> {
+  let changed = 0
+  for (const id of ids) {
+    const r = await guard(() => api.updateJob(id, { output: { dir } }), 'toast.updateFailed')
+    if (r) changed++
+  }
+  await refreshQueue()
+  if (changed) toast('success', tNow('toast.outputChanged', { n: changed }))
+}
+
+// ───────────────────────────── selection / navigation ─────────────────────────────
+
+export function selectJobs(ids: string[], anchor?: string | null): void {
+  set((s) => ({ selected: ids, anchor: anchor === undefined ? s.anchor : anchor }))
+}
+
+export function setView(view: View): void {
+  set({ view })
+}
+
+export function openSettings(tab: SettingsTab = 'general'): void {
+  set({ settingsTab: tab })
+}
+
+export function togglePresetBrowser(open?: boolean): void {
+  const v = open ?? !get().presetBrowserOpen
+  writeBool(LS_BROWSER, v)
+  set({ presetBrowserOpen: v })
+}
