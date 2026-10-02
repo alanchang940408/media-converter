@@ -28,7 +28,6 @@ import {
   SlidersHorizontal,
   Square,
   Trash2,
-  Undo2,
   X,
   ChevronDown,
   ChevronRight,
@@ -45,7 +44,6 @@ import {
   duplicateJobs,
   guard,
   openEditor,
-  openFileOps,
   openPreview,
   removeJobs,
   removeJobsConfirm,
@@ -53,6 +51,7 @@ import {
   retryJobs,
   saveSettings,
   selectJobs,
+  setView,
   setJobsOutputDir,
   setJobsPreserveStructure,
   startQueue,
@@ -60,7 +59,6 @@ import {
   toast,
   togglePresetBrowser,
   tNow,
-  undoLastFileOp,
   useLocale,
   useStore,
   useT,
@@ -75,8 +73,16 @@ import { PresetBrowser } from '../components/PresetBrowser'
 import { Thumb, type ThumbKind } from '../components/Thumb'
 import { Button, IconButton, Menu, MenuButton, ProgressBar, Select, Switch, cx, isModalOpen, isTypingTarget, type MenuItem } from '../components/ui'
 
+/** Jobs shown in the conversion queue: batch rename / copy / move jobs live on their own tab. */
+const visibleJobs = (jobs: Job[]): Job[] => jobs.filter((j) => j.kind !== 'file')
+
+function useQueueJobs(): Job[] {
+  const all = useStore((s) => s.jobs)
+  return useMemo(() => visibleJobs(all), [all])
+}
+
 export function QueueView() {
-  const jobs = useStore((s) => s.jobs)
+  const jobs = useQueueJobs()
   const browserOpen = useStore((s) => s.presetBrowserOpen)
   return (
     <div className={cx('queue-view', browserOpen && 'with-browser')}>
@@ -94,13 +100,12 @@ export function QueueView() {
 
 function QueueToolbar() {
   const t = useT()
-  const jobs = useStore((s) => s.jobs)
+  const jobs = useQueueJobs()
   const selected = useStore((s) => s.selected)
   const browserOpen = useStore((s) => s.presetBrowserOpen)
   const sel = jobs.filter((j) => selected.includes(j.id))
   const editable = sel.filter(isEditableJob)
   const finished = jobs.some((j) => j.status === 'done' || j.status === 'skipped')
-  const undo = useStore((s) => s.fileOpUndo)
   // rename jobs stay in their folder, so the output folder does not apply to them
   const withFolder = editable.filter((j) => !(j.kind === 'file' && jobOperation(j) === 'rename'))
   const allPreserve = withFolder.length > 0 && withFolder.every((j) => j.output.preserveStructure)
@@ -137,9 +142,6 @@ function QueueToolbar() {
       <Button icon={FolderPlus} onClick={() => void addFolderDialog()}>
         {t('queue.addFolder')}
       </Button>
-      <Button variant="ghost" icon={FilePen} onClick={() => openFileOps()} title={t('fileops.openHint')} className="tb-collapsible">
-        {t('fileops.open')}
-      </Button>
       <span className="tb-sep" />
       <Button variant="ghost" icon={Trash2} disabled={!sel.length} onClick={() => void removeJobs(selected)} title={`${t('queue.remove')} (Delete)`} className="tb-collapsible">
         {t('queue.remove')}
@@ -151,14 +153,6 @@ function QueueToolbar() {
         {t('queue.clearFinished')}
       </Button>
       <MenuButton variant="ghost" icon={FolderOutput} label={t('queue.outputFolder')} items={outputItems} disabled={!editable.length} title={t('queue.outputFolderHint')} className="tb-collapsible" />
-      {undo && (
-        <>
-          <span className="tb-sep" />
-          <Button variant="ghost" icon={Undo2} onClick={() => void undoLastFileOp()} title={t('fileop.undoButtonHint')} className="tb-collapsible tb-undo">
-            {t('fileop.undoButton', { n: undo.count })}
-          </Button>
-        </>
-      )}
       <span className="tb-spacer" />
       <span className="tb-count">{sel.length ? t('queue.selectedCount', { n: sel.length, total: jobs.length }) : t('queue.totalCount', { n: jobs.length })}</span>
       {!browserOpen && <IconButton icon={PanelRightOpen} label={t('queue.showBrowser')} onClick={() => togglePresetBrowser(true)} />}
@@ -190,7 +184,7 @@ function EmptyDrop() {
         </div>
         <p className="empty-formats">{t('queue.dropFormats')}</p>
         <div className="empty-secondary">
-          <Button variant="ghost" icon={FilePen} onClick={() => openFileOps()}>
+          <Button variant="ghost" icon={FilePen} onClick={() => setView('batch')}>
             {t('fileops.emptyAction')}
           </Button>
           <span>{t('fileops.emptyHint')}</span>
@@ -210,7 +204,7 @@ const sepOf = (p: string): string => (p.includes('\\') || /^[a-z]:/i.test(p) ? '
 function JobList() {
   const t = useT()
   const locale = useLocale()
-  const jobs = useStore((s) => s.jobs)
+  const jobs = useQueueJobs()
   const selected = useStore((s) => s.selected)
   const presets = useStore((s) => s.presets)
   const view = useStore((s) => s.view)
@@ -233,12 +227,13 @@ function JobList() {
         }
       } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'a') {
         e.preventDefault()
-        selectJobs(st.jobs.map((j) => j.id), st.jobs[0]?.id ?? null)
+        const vis = visibleJobs(st.jobs)
+        selectJobs(vis.map((j) => j.id), vis[0]?.id ?? null)
       } else if (e.key === 'Escape' && st.selected.length) {
         selectJobs([], null)
       } else if ((e.key === 'ArrowDown' || e.key === 'ArrowUp') && listRef.current?.contains(document.activeElement)) {
         e.preventDefault()
-        const ids = st.jobs.map((j) => j.id)
+        const ids = visibleJobs(st.jobs).map((j) => j.id)
         const cur = st.selected.length ? ids.indexOf(st.selected[st.selected.length - 1]) : -1
         const next = Math.max(0, Math.min(ids.length - 1, cur + (e.key === 'ArrowDown' ? 1 : -1)))
         const id = ids[next]
@@ -262,7 +257,7 @@ function JobList() {
   const onRowClick = (e: RMouseEvent, id: string): void => {
     if ((e.target as HTMLElement).closest('button, select, input, a, .no-row-select')) return
     const st = useStore.getState()
-    const ids = st.jobs.map((j) => j.id)
+    const ids = visibleJobs(st.jobs).map((j) => j.id)
     if (e.shiftKey && st.anchor && ids.includes(st.anchor)) {
       const a = ids.indexOf(st.anchor)
       const b = ids.indexOf(id)
@@ -826,9 +821,12 @@ function JobDetails({ job, t }: { job: Job; t: TFunc }) {
 
 // ───────────────────────────── status bar ─────────────────────────────
 
+/** A previewed batch rename waits for its own Run: the queue's Start must not pick those file jobs up. */
+const queuedBatchJobs = (): boolean => useStore.getState().jobs.some((j) => j.kind === 'file' && j.status === 'queued')
+
 function StatusBar() {
   const t = useT()
-  const jobs = useStore((s) => s.jobs)
+  const jobs = useQueueJobs()
   const running = useStore((s) => s.running)
   const autoStart = useStore((s) => s.settings.autoStart)
   const c = { queued: 0, running: 0, done: 0, failed: 0, skipped: 0, cancelled: 0 }
@@ -880,7 +878,7 @@ function StatusBar() {
             {t('bar.stop')}
           </Button>
         ) : (
-          <Button variant="start" size="lg" icon={Play} disabled={!c.queued} onClick={() => void startQueue()} className="queue-btn" title={c.queued ? undefined : t('bar.nothingQueued')}>
+          <Button variant="start" size="lg" icon={Play} disabled={!c.queued} onClick={() => void startQueue(queuedBatchJobs() ? jobs.filter((j) => j.status === 'queued').map((j) => j.id) : undefined)} className="queue-btn" title={c.queued ? undefined : t('bar.nothingQueued')}>
             {t('bar.start')}
           </Button>
         )}

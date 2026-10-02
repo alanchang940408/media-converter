@@ -17,7 +17,7 @@ import { api } from './api'
 import { LOCALE_HTML_LANG as LOCALE_TAGS, makeT, type MessageKey, type TFunc } from './i18n'
 import { fileName } from './lib/format'
 
-export type View = 'queue' | 'presets' | 'watch'
+export type View = 'queue' | 'batch' | 'presets' | 'watch'
 export type SettingsTab = 'general' | 'output' | 'performance' | 'about'
 
 export interface ToastAction {
@@ -94,7 +94,7 @@ export interface AppState {
   toasts: Toast[]
   dialog: DialogRequest | null
   /** Batch rename / copy / move dialog: open while non-null, holds the chosen files and folders. */
-  fileOps: { entries: FileOpsEntry[] } | null
+  fileOps: { entries: FileOpsEntry[] }
   /** Last move/rename run that can be undone (null when none, or when main does not support it). */
   fileOpUndo: FileOpUndoInfo | null
 }
@@ -139,7 +139,7 @@ export const useStore = create<AppState>(() => ({
   presetBrowserOpen: readBool(LS_BROWSER, true),
   toasts: [],
   dialog: null,
-  fileOps: null,
+  fileOps: { entries: [] },
   fileOpUndo: null,
 }))
 
@@ -439,12 +439,9 @@ export async function setJobsPreserveStructure(ids: string[], preserveStructure:
 
 // ───────────────────────────── file operations (batch rename / copy / move) ─────────────────────────────
 
+/** Switch to the "Batch rename" tab, adding `entries` to its file list. */
 export function openFileOps(entries: FileOpsEntry[] = []): void {
-  set({ fileOps: { entries: dedupeEntries(entries) }, editorJobId: null, previewJobId: null })
-}
-
-export function closeFileOps(): void {
-  set({ fileOps: null })
+  set((s) => ({ fileOps: { entries: dedupeEntries([...s.fileOps.entries, ...entries]) }, editorJobId: null, previewJobId: null, view: 'batch' }))
 }
 
 function dedupeEntries(list: FileOpsEntry[]): FileOpsEntry[] {
@@ -458,15 +455,15 @@ function dedupeEntries(list: FileOpsEntry[]): FileOpsEntry[] {
 }
 
 export function addFileOpsEntries(entries: FileOpsEntry[]): void {
-  set((s) => (s.fileOps ? { fileOps: { entries: dedupeEntries([...s.fileOps.entries, ...entries]) } } : {}))
+  set((s) => ({ fileOps: { entries: dedupeEntries([...s.fileOps.entries, ...entries]) } }))
 }
 
 export function removeFileOpsEntry(path: string): void {
-  set((s) => (s.fileOps ? { fileOps: { entries: s.fileOps.entries.filter((e) => e.path !== path) } } : {}))
+  set((s) => ({ fileOps: { entries: s.fileOps.entries.filter((e) => e.path !== path) } }))
 }
 
 export function clearFileOpsEntries(): void {
-  set((s) => (s.fileOps ? { fileOps: { entries: [] } } : {}))
+  set({ fileOps: { entries: [] } })
 }
 
 let undoToastId: number | null = null

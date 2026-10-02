@@ -1,5 +1,17 @@
 # Next round (requested 2026-10-01)
 
+## 0. (2026-10-02, user request) MPG / WMV / AVI as OUTPUT formats
+Input already works (ffmpeg decodes all of them). Add them as output containers end-to-end
+(src/shared/types + videoRules, ffmpeg args/muxers, presets, preset editor UI, i18n, tests):
+- `mpg` → MPEG-PS (`-f mpeg`, or `-f dvd` for DVD-compliant): video `mpeg2video` (+ `mpeg1video`), audio `mp2` / `ac3`.
+- `wmv` → ASF (`-f asf`): video `wmv2` (ffmpeg has no WMV9/VC-1 encoder — say so in the UI), audio `wmav2`.
+- `avi` → AVI (`-f avi`): video `mpeg4` with `-vtag xvid` (Xvid-compatible), `mjpeg`, optionally `h264`; audio `mp3` / `pcm`.
+- New VideoCodecId values (e.g. `mpeg2`, `mpeg1`, `mpeg4`, `wmv2`, `mjpeg`) and AudioCodecId (`mp2`, `ac3`, `wmav2`); rate control mapping (qscale/bitrate) and sensible defaults.
+- Built-in presets: MPEG-2 DVD NTSC 720×480 / PAL 720×576, MPEG-2 1080p, WMV 720p, AVI Xvid 720p, AVI MJPEG (editing-friendly).
+- Integration tests encode each and verify with ffprobe; e2e one of each.
+
+Also pending: top tab label 佇列 → 轉檔 (zh-TW only) — apply after the current UX agent finishes if not yet done.
+
 ## 1. Rename / copy-only mode (no re-encode)
 Bulk file operations that never touch file contents (like a batch renamer).
 - New preset kind `file` (category `file`): `{ operation: 'copy' | 'move' | 'rename' }`.

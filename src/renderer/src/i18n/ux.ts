@@ -22,6 +22,14 @@ export const uxEn = {
   'watch.existingNewOnly': 'Only files added later',
   'watch.existingLabel': 'Files already there',
   'watch.existingOffHint': 'Files that were in the folder before watching started are left alone; only newly added files are converted.',
+  'nav.batch': 'Batch rename',
+  'batch.stepRun': 'This batch',
+  'batch.summary': '{done} done · {failed} failed · {skipped} skipped · {left} left',
+  'batch.runningNote': 'Only the files of this batch are processed; conversion jobs in the queue are not affected.',
+  'batch.doneNote': 'Finished. Renames and moves can be undone; “New batch” starts over with an empty list.',
+  'batch.newBatch': 'New batch',
+  'batch.newBatchHint': 'Clear this batch and choose files for the next one',
+  'batch.gone': 'The jobs of this batch are no longer in the list.',
 }
 
 export const uxZhTW: Record<keyof typeof uxEn, string> = {
@@ -45,6 +53,14 @@ export const uxZhTW: Record<keyof typeof uxEn, string> = {
   'watch.existingNewOnly': '只轉換之後放進來的',
   'watch.existingLabel': '資料夾中已有的檔案',
   'watch.existingOffHint': '開始監看前就在資料夾裡的檔案不會處理，只轉換之後新放進來的檔案。',
+  'nav.batch': '批次改名',
+  'batch.stepRun': '這一批的執行結果',
+  'batch.summary': '完成 {done}・失敗 {failed}・略過 {skipped}・剩下 {left}',
+  'batch.runningNote': '只會處理這一批的檔案，佇列裡的轉檔工作不受影響。',
+  'batch.doneNote': '已完成。重新命名和移動可以復原；按「開始新的一批」會清空清單重新開始。',
+  'batch.newBatch': '開始新的一批',
+  'batch.newBatchHint': '清掉這一批，選擇下一批要處理的檔案',
+  'batch.gone': '這一批的工作已經不在清單中。',
 }
 
 export const uxJa: Record<keyof typeof uxEn, string> = {
@@ -68,4 +84,12 @@ export const uxJa: Record<keyof typeof uxEn, string> = {
   'watch.existingNewOnly': '今後追加されたファイルだけ',
   'watch.existingLabel': 'フォルダー内の既存ファイル',
   'watch.existingOffHint': '監視を始める前からフォルダーにあったファイルは処理せず、新しく追加されたファイルだけを変換します。',
+  'nav.batch': '一括リネーム',
+  'batch.stepRun': '今回の実行結果',
+  'batch.summary': '完了 {done}・失敗 {failed}・スキップ {skipped}・残り {left}',
+  'batch.runningNote': '処理するのはこの一括処理のファイルだけです。キューの変換ジョブには影響しません。',
+  'batch.doneNote': '完了しました。名前の変更と移動は元に戻せます。「新しい一括処理」でリストを空にして始め直せます。',
+  'batch.newBatch': '新しい一括処理',
+  'batch.newBatchHint': 'この一括処理をクリアして、次に処理するファイルを選びます',
+  'batch.gone': 'この一括処理のジョブはもうリストにありません。',
 }

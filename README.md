@@ -61,7 +61,7 @@ Media Converter 是一套桌面批次轉檔程式，結合了兩種常見的工�
 
 只想整理檔名、不想轉檔時用這個功能。它只會改檔名或搬檔案，檔案內容完全不動，任何類型的檔案都可以（照片、影片、PDF、文件…）。
 
-1. 在「佇列」工具列按「**批次重新命名…**」。
+1. 切到上方的「**批次改名**」分頁（在「佇列」旁邊）。批次改名的工作不會出現在轉檔佇列裡，進度和結果都在這個分頁看。
 2. 按「加入檔案」或「加入資料夾」，也可以直接把檔案拖進視窗。勾選「包含子資料夾」會連子資料夾裡的檔案一起處理。
 3. 選擇要做什麼：
 
@@ -74,7 +74,7 @@ Media Converter 是一套桌面批次轉檔程式，結合了兩種常見的工�
 4. 選擇存放位置（複製、移動才需要），需要的話打開「**保留資料夾結構**」：子資料夾裡的檔案會放進輸出資料夾裡同名的子資料夾，不會全部擠在一起。
 5. 輸入新檔名範本（點下方的標籤就能插入），選擇「編號順序」和「檔案已存在時」要怎麼處理。下方會即時顯示範例。
 6. 按「**預覽**」：表格列出每個檔案的目前檔名 → 新檔名，會被加上編號、覆寫或略過的檔案會特別標示，可以切換到「需要留意」只看這些。**這一步還不會更動任何檔案**；按「返回」可以再修改。
-7. 確認沒問題後按「**執行**」。完成後，通知和佇列工具列會出現「**復原**」，可以把上一次重新命名或移動的檔案放回原本的名稱和位置。
+7. 確認沒問題後按「**執行**」。分頁會列出這一批每個檔案的狀態；完成後，通知和分頁上會出現「**復原**」，可以把上一次重新命名或移動的檔案放回原本的名稱和位置。按「**開始新的一批**」可以清空重來。
 
 **編號順序**（決定 `{counter}` 的編號）
 
@@ -251,7 +251,7 @@ For hands-off processing, add a **Watch folder** with the presets you want; new 
 
 For when you only want to tidy up file names, not convert anything. It renames or moves files and never changes their contents, so it works with any file type (photos, videos, PDFs, documents…).
 
-1. In the **Queue** toolbar, click **Batch rename…**.
+1. Open the **Batch rename** tab at the top (next to **Queue**). Batch jobs don't appear in the conversion queue; their progress and results are shown on this tab.
 2. Click **Add files** or **Add folder**, or drag files onto the window. **Include subfolders** also takes the files inside subfolders.
 3. Choose what to do:
 
@@ -264,7 +264,7 @@ For when you only want to tidy up file names, not convert anything. It renames o
 4. Pick the destination (copy and move only) and, if you like, turn on **Keep folder structure** so files from subfolders land in matching subfolders instead of all in one place.
 5. Type the new-name template (click a tag to insert it), then pick the **Numbering order** and the **If the file exists** option. Live examples show the result.
 6. Click **Preview**: a table lists every file's current name → new name; files that get a number added, overwrite something or are skipped are highlighted, and **Needs a look** shows only those. **Nothing has changed yet** — **Back** lets you adjust.
-7. Click **Run**. Only the previewed files are processed; other jobs waiting in the queue stay there. When it finishes, the notification and the queue toolbar offer **Undo**, which puts the files of the last rename or move back under their old names and locations.
+7. Click **Run**. Only the previewed files are processed; other jobs waiting in the queue stay there. The tab lists every file of the batch with its status. When it finishes, the notification and the tab offer **Undo**, which puts the files of the last rename or move back under their old names and locations; **New batch** starts over.
 
 **Numbering order** (what `{counter}` counts by)
 

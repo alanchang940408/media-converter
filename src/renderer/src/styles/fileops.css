@@ -982,3 +982,152 @@
   font-size: 11px;
   color: var(--accent-text);
 }
+
+/* ───────────── "Batch rename" tab (the former dialog as a page) ───────────── */
+.batch-view {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  background: var(--bg);
+}
+
+.batch-view[hidden] {
+  display: none;
+}
+
+.batch-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 16px;
+  min-height: 46px;
+  border-bottom: 1px solid var(--border);
+  background: var(--panel);
+  flex-shrink: 0;
+}
+
+.batch-head h2 {
+  margin: 0;
+  font-size: var(--fs-lg);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.batch-head-icon {
+  color: var(--accent-text);
+  flex-shrink: 0;
+}
+
+.batch-step {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--fs-sm);
+  color: var(--text-3);
+}
+
+.batch-head .footer-spacer,
+.batch-foot .footer-spacer {
+  flex: 1;
+}
+
+.batch-body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 16px;
+}
+
+.batch-body.fo-body-preview {
+  overflow: hidden;
+}
+
+.batch-foot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  border-top: 1px solid var(--border);
+  background: var(--panel);
+  flex-shrink: 0;
+}
+
+.batch-run {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  flex: 1;
+  min-height: 0;
+}
+
+.batch-run-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.batch-run-head .progress {
+  flex: 1;
+}
+
+.batch-run-summary {
+  font-size: var(--fs-sm);
+  color: var(--text-2);
+  white-space: nowrap;
+}
+
+.batch-run-list {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--panel);
+}
+
+.batch-run-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 14px minmax(0, 1fr) 96px;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--row-border);
+  font-size: var(--fs-sm);
+}
+
+.batch-run-name,
+.batch-run-target {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.batch-run-arrow {
+  color: var(--text-3);
+}
+
+.batch-run-status {
+  text-align: right;
+  font-size: var(--fs-xs);
+  color: var(--text-2);
+}
+
+.batch-run-row.st-done .batch-run-status {
+  color: var(--success);
+}
+
+.batch-run-row.st-failed .batch-run-status,
+.batch-run-row.st-cancelled .batch-run-status {
+  color: var(--danger);
+}
+
+.batch-run-row.st-running .batch-run-status {
+  color: var(--accent-text);
+}
+
+.batch-run-empty {
+  padding: 24px;
+  text-align: center;
+}

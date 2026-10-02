@@ -1,6 +1,6 @@
 // App shell: boot, theme, header with tabs + hardware badge, view switching, global modals, drop overlay.
 import { useEffect, useRef, useState } from 'react'
-import { Cpu, FolderSearch, Gauge, Layers, ListVideo, RefreshCw, Settings, TriangleAlert, Zap } from 'lucide-react'
+import { Cpu, FilePen, FolderSearch, Gauge, Layers, ListVideo, RefreshCw, Settings, TriangleAlert, Zap } from 'lucide-react'
 import type { EncoderCapabilities } from '../../shared/types'
 import { HW_PRIORITY } from '../../shared/videoRules'
 import { api, isMock } from './api'
@@ -16,13 +16,14 @@ import { WatchView } from './views/WatchView'
 import { SettingsModal } from './modals/SettingsModal'
 import { PreviewModal } from './modals/PreviewModal'
 import { JobEditorModal } from './modals/JobEditorModal'
-import { FileOpsModal } from './modals/FileOpsModal'
+import { BatchRenameView } from './views/BatchRenameView'
 import { entriesFromPaths } from './lib/fileops'
 
 export function App() {
   const ready = useStore((s) => s.ready)
   const loadError = useStore((s) => s.loadError)
 
+  const view = useStore((s) => s.view)
   useBoot()
   useTheme()
   useHtmlLang()
@@ -36,11 +37,11 @@ export function App() {
       <Header />
       <main className="app-main">
         <CurrentView />
+        <BatchRenameView active={view === 'batch'} />
       </main>
       <SettingsModal />
       <PreviewModal />
       <JobEditorModal />
-      <FileOpsModal />
       <DialogHost />
       <Toasts />
       <DropOverlay visible={dragging} />
@@ -52,6 +53,7 @@ function CurrentView() {
   const view = useStore((s) => s.view)
   if (view === 'presets') return <PresetsView />
   if (view === 'watch') return <WatchView />
+  if (view === 'batch') return null
   return <QueueView />
 }
 
@@ -140,8 +142,8 @@ function useWindowFileDrop(enabled: boolean): boolean {
         toast('error', tNow('toast.dropUnreadable'))
         return
       }
-      // While the batch rename dialog is open, drops go into its file list instead of the queue.
-      if (useStore.getState().fileOps) {
+      // On the batch rename tab, drops go into its file list instead of the queue.
+      if (useStore.getState().view === 'batch') {
         addFileOpsEntries(entriesFromPaths(paths))
         return
       }
@@ -175,6 +177,7 @@ function useWindowFileDrop(enabled: boolean): boolean {
 
 const TABS: { view: View; icon: typeof ListVideo; label: MessageKey }[] = [
   { view: 'queue', icon: ListVideo, label: 'nav.queue' },
+  { view: 'batch', icon: FilePen, label: 'nav.batch' },
   { view: 'presets', icon: Layers, label: 'nav.presets' },
   { view: 'watch', icon: FolderSearch, label: 'nav.watch' },
 ]
@@ -184,7 +187,7 @@ function Header() {
   const view = useStore((s) => s.view)
   const jobs = useStore((s) => s.jobs)
   const watchFolders = useStore((s) => s.watchFolders)
-  const pending = jobs.filter((j) => j.status === 'queued' || j.status === 'running').length
+  const pending = jobs.filter((j) => j.kind !== 'file' && (j.status === 'queued' || j.status === 'running')).length
   const activeWatch = watchFolders.filter((w) => w.enabled).length
 
   return (
