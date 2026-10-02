@@ -2,7 +2,7 @@
 # Build:  npm run build  →  npx electron-builder --win | --mac | --linux
 # ffmpeg: node scripts/fetch-ffmpeg.mjs first (fills resources/bin/<platform>-<arch>, shipped as <resources>/bin).
 # No code signing: Windows SmartScreen / macOS Gatekeeper will warn on first launch (see README).
-appId: app.mediaconverter.desktop
+appId: io.github.alan940408.media-converter
 productName: Media Converter
 copyright: Copyright © 2026 Media Converter contributors
 

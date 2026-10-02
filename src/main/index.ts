@@ -30,7 +30,7 @@ import {
 applyUserDataOverride()
 // Dev/test runs use electron.exe (Electron's atom icon); a separate AppUserModelID keeps them from poisoning the
 // taskbar's icon cache for the installed app, which shares the packaged id with its Start-menu shortcut.
-const APP_USER_MODEL_ID = app.isPackaged ? 'app.mediaconverter.desktop' : 'app.mediaconverter.desktop.dev'
+const APP_USER_MODEL_ID = app.isPackaged ? 'io.github.alan940408.media-converter' : 'io.github.alan940408.media-converter.dev'
 app.setAppUserModelId(APP_USER_MODEL_ID)
 registerMediaScheme()
 
