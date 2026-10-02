@@ -76,6 +76,7 @@ const api: MediaApi = {
   getFileOpUndo: invoke('getFileOpUndo'),
   undoFileOps: invoke('undoFileOps'),
 
+  countMediaFiles: invoke('countMediaFiles'),
   listWatchFolders: invoke('listWatchFolders'),
   saveWatchFolder: invoke('saveWatchFolder'),
   deleteWatchFolder: invoke('deleteWatchFolder'),

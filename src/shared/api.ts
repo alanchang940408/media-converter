@@ -95,6 +95,8 @@ export interface MediaApi {
   undoFileOps(): Promise<FileOpUndoResult>
 
   // ── watch folders ──
+  /** How many supported media files `path` holds (subfolders when `recursive`), not counting its Output / Source subfolders. */
+  countMediaFiles(path: string, recursive: boolean): Promise<number>
   listWatchFolders(): Promise<WatchFolder[]>
   saveWatchFolder(w: WatchFolder): Promise<WatchFolder>
   deleteWatchFolder(id: string): Promise<void>

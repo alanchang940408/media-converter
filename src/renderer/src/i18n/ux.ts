@@ -16,6 +16,12 @@ export const uxEn = {
   'editor.appliedMany': 'Applied to {n} {n|job|jobs}',
   'editor.groupNote': 'These settings and the output row will be applied to the {n} selected jobs of this type. Trim is not copied; each job keeps its own.',
   'editor.groupSkipped': '{n} selected {n|job is|jobs are} skipped (running, finished, or a different type).',
+  'watch.existingAsk': 'This folder already has {n} {n|file|files} that can be converted. Convert {n|it|them} too?',
+  'watch.existingAskBody': 'With “Only files added later”, the files already there are left as they are. You can change this on the watch card at any time.',
+  'watch.existingAll': 'Convert them too',
+  'watch.existingNewOnly': 'Only files added later',
+  'watch.existingLabel': 'Files already there',
+  'watch.existingOffHint': 'Files that were in the folder before watching started are left alone; only newly added files are converted.',
 }
 
 export const uxZhTW: Record<keyof typeof uxEn, string> = {
@@ -33,6 +39,12 @@ export const uxZhTW: Record<keyof typeof uxEn, string> = {
   'editor.appliedMany': '已套用到 {n} 個工作',
   'editor.groupNote': '這些設定和輸出位置會套用到選取的 {n} 個同類型工作。剪輯範圍不會複製，各工作保留自己的設定。',
   'editor.groupSkipped': '選取中有 {n} 個工作正在處理、已完成或類型不同，會略過。',
+  'watch.existingAsk': '這個資料夾裡已經有 {n} 個可轉換的檔案，要一起轉換嗎？',
+  'watch.existingAskBody': '選「只轉換之後放進來的」的話，資料夾裡現有的檔案不會被處理。之後隨時可以在監看卡片上更改。',
+  'watch.existingAll': '一起轉換',
+  'watch.existingNewOnly': '只轉換之後放進來的',
+  'watch.existingLabel': '資料夾中已有的檔案',
+  'watch.existingOffHint': '開始監看前就在資料夾裡的檔案不會處理，只轉換之後新放進來的檔案。',
 }
 
 export const uxJa: Record<keyof typeof uxEn, string> = {
@@ -50,4 +62,10 @@ export const uxJa: Record<keyof typeof uxEn, string> = {
   'editor.appliedMany': '{n} 件のジョブに適用しました',
   'editor.groupNote': 'この設定と出力先を、選択中の同じ種類のジョブ {n} 件に適用します。トリミング範囲はコピーされず、各ジョブのままです。',
   'editor.groupSkipped': '選択中の {n} 件（処理中・完了済み、または種類が異なるジョブ）はスキップします。',
+  'watch.existingAsk': 'このフォルダーには変換できるファイルがすでに {n} 件あります。一緒に変換しますか？',
+  'watch.existingAskBody': '「今後追加されたファイルだけ」を選ぶと、フォルダーに今あるファイルは処理しません。あとから監視カードでいつでも変更できます。',
+  'watch.existingAll': '一緒に変換する',
+  'watch.existingNewOnly': '今後追加されたファイルだけ',
+  'watch.existingLabel': 'フォルダー内の既存ファイル',
+  'watch.existingOffHint': '監視を始める前からフォルダーにあったファイルは処理せず、新しく追加されたファイルだけを変換します。',
 }

@@ -1518,6 +1518,10 @@ export function createMockApi(): MediaApi {
       return { restored, failed }
     },
 
+    async countMediaFiles(): Promise<number> {
+      await delay(30)
+      return 3
+    },
     async listWatchFolders(): Promise<WatchFolder[]> {
       await delay(40)
       return clone(watchFolders)

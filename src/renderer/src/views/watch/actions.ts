@@ -13,6 +13,21 @@ export async function saveWatchFolder(w: WatchFolder): Promise<boolean> {
   return !!saved
 }
 
+/**
+ * A folder that already holds convertible files: ask whether to convert those too (→ processExisting).
+ * Without that question, a new watch folder silently ignored everything already inside it.
+ */
+async function askProcessExisting(dir: string, recursive: boolean, current: boolean): Promise<boolean> {
+  const n = (await guard(() => api.countMediaFiles(dir, recursive))) ?? 0
+  if (!n) return current
+  return confirmDialog({
+    title: tNow('watch.existingAsk', { n }),
+    message: tNow('watch.existingAskBody'),
+    confirmLabel: tNow('watch.existingAll'),
+    cancelLabel: tNow('watch.existingNewOnly'),
+  })
+}
+
 function defaultPresetIds(): string[] {
   const { presets, settings } = useStore.getState()
   const video = presets.find((p) => p.id === settings.lastVideoPresetId && p.kind === 'video') ?? presets.find((p) => p.kind === 'video')
@@ -36,7 +51,7 @@ export async function addWatchFolder(): Promise<void> {
     outputDir: null,
     includeSubfolders: false,
     afterProcess: 'keep',
-    processExisting: false,
+    processExisting: await askProcessExisting(dir, false, false),
   }
   const saved = await guard(() => api.saveWatchFolder(w), 'watch.saveFailed')
   await refreshWatchFolders()
@@ -50,7 +65,8 @@ export async function changeWatchPath(w: WatchFolder): Promise<void> {
     toast('info', tNow('watch.alreadyWatched', { name: fileName(dir) || dir }))
     return
   }
-  await saveWatchFolder({ ...w, path: dir })
+  const processExisting = await askProcessExisting(dir, w.includeSubfolders, w.processExisting)
+  await saveWatchFolder({ ...w, path: dir, processExisting })
 }
 
 export async function changeWatchOutput(w: WatchFolder): Promise<void> {

@@ -124,10 +124,26 @@ export function WatchCard({ w }: { w: WatchFolder }) {
         </div>
 
         <div className="wf-field">
+          <div className="wf-label">{t('watch.existingLabel')}</div>
+          <div className="wf-control">
+            <Segmented<'all' | 'new'>
+              size="sm"
+              value={w.processExisting ? 'all' : 'new'}
+              onChange={(v) => save({ processExisting: v === 'all' })}
+              ariaLabel={t('watch.existingLabel')}
+              options={[
+                { value: 'all', label: t('watch.existingAll') },
+                { value: 'new', label: t('watch.existingNewOnly') },
+              ]}
+            />
+            <div className="wf-hint">{w.processExisting ? t('watch.existingHint') : t('watch.existingOffHint')}</div>
+          </div>
+        </div>
+
+        <div className="wf-field">
           <div className="wf-label">{t('watch.options')}</div>
           <div className="wf-control wf-options">
             <Checkbox checked={w.includeSubfolders} onChange={(includeSubfolders) => save({ includeSubfolders })} label={t('watch.subfolders')} title={`${t('watch.subfoldersHint')} ${t('watch.subfoldersStructure')}`} />
-            <Checkbox checked={w.processExisting} onChange={(processExisting) => save({ processExisting })} label={t('watch.existing')} title={t('watch.existingHint')} />
           </div>
         </div>
       </div>

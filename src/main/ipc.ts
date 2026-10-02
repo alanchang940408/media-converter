@@ -9,7 +9,7 @@ import type { CapabilitiesCache } from './caps'
 import type { FfmpegEngine, ImageEngine } from './contracts'
 import { t, type I18nKey } from './i18n'
 import type { PresetStore } from './presets/store'
-import type { Queue } from './queue/Queue'
+import { expandPaths, type Queue } from './queue/Queue'
 import type { SettingsManager } from './settings'
 import type { ThumbnailService } from './thumbnails'
 import type { WatchManager } from './watch/WatchManager'
@@ -224,6 +224,13 @@ export function createHandlers(ctx: IpcContext): Handlers {
     undoFileOps: () => queue.undoFileOps(),
 
     // ── watch folders ──
+    countMediaFiles: async (path, recursive) => {
+      if (typeof path !== 'string' || !path) return 0
+      const { entries } = await expandPaths([path], { recursive: !!recursive })
+      // a watch folder's own Output / Source subfolders never count as "files already there"
+      const skip = new Set(['output', 'source'])
+      return entries.filter((e) => !skip.has((e.relativeDir ?? '').split(/[\\/]/)[0].toLowerCase())).length
+    },
     listWatchFolders: async () => watch.list(),
     saveWatchFolder: (w) => watch.save(w),
     deleteWatchFolder: (id) => watch.delete(id),

@@ -63,7 +63,7 @@ export function DialogHost() {
       onClose={() => closeDialog(d.kind === 'prompt' ? null : false)}
       footer={
         <>
-          <Button onClick={() => closeDialog(d.kind === 'prompt' ? null : false)}>{t('common.cancel')}</Button>
+          <Button onClick={() => closeDialog(d.kind === 'prompt' ? null : false)}>{d.cancelLabel ?? t('common.cancel')}</Button>
           <Button variant={d.danger ? 'danger' : 'primary'} onClick={submit} data-autofocus={d.kind === 'confirm' ? true : undefined} disabled={d.kind === 'prompt' && !value.trim()}>
             {d.confirmLabel ?? t('common.ok')}
           </Button>

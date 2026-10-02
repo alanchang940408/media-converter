@@ -46,6 +46,7 @@ export interface DialogRequest {
   label?: string
   value?: string
   confirmLabel?: string
+  cancelLabel?: string
   danger?: boolean
   resolve: (v: string | boolean | null) => void
 }
@@ -197,7 +198,7 @@ export async function guard<T>(fn: () => Promise<T>, failKey: MessageKey = 'toas
   }
 }
 
-export function confirmDialog(opts: { title: string; message?: string; confirmLabel?: string; danger?: boolean }): Promise<boolean> {
+export function confirmDialog(opts: { title: string; message?: string; confirmLabel?: string; cancelLabel?: string; danger?: boolean }): Promise<boolean> {
   return new Promise((resolve) => {
     set({ dialog: { kind: 'confirm', ...opts, resolve: (v) => resolve(v === true) } })
   })
