@@ -28,7 +28,10 @@ import {
 } from './watch/WatchManager'
 
 applyUserDataOverride()
-app.setAppUserModelId('app.mediaconverter.desktop')
+// Dev/test runs use electron.exe (Electron's atom icon); a separate AppUserModelID keeps them from poisoning the
+// taskbar's icon cache for the installed app, which shares the packaged id with its Start-menu shortcut.
+const APP_USER_MODEL_ID = app.isPackaged ? 'app.mediaconverter.desktop' : 'app.mediaconverter.desktop.dev'
+app.setAppUserModelId(APP_USER_MODEL_ID)
 registerMediaScheme()
 
 const here = dirname(fileURLToPath(import.meta.url))
@@ -179,6 +182,16 @@ function createWindow(): void {
     },
   })
   const w = win
+  if (process.platform === 'win32' && app.isPackaged) {
+    // Tell the taskbar explicitly which icon belongs to this AppUserModelID (overrides a stale cached association).
+    w.setAppDetails({
+      appId: APP_USER_MODEL_ID,
+      appIconPath: process.execPath,
+      appIconIndex: 0,
+      relaunchCommand: `"${process.execPath}"`,
+      relaunchDisplayName: app.getName(),
+    })
+  }
 
   w.once('ready-to-show', () => {
     if (state.maximized) w.maximize()
