@@ -91,10 +91,16 @@ function backgroundColor(): string {
   return dark ? DARK_BG : LIGHT_BG
 }
 
-function devIcon(): string | undefined {
-  if (app.isPackaged) return undefined
-  const icon = join(here, '../../resources/icon.png')
-  return existsSync(icon) ? icon : undefined
+/**
+ * App icon for the window/taskbar ('window') and toasts ('notification'). Always set explicitly: without it Windows can
+ * show Electron's default atom icon (e.g. for toasts, or when the taskbar groups by AppUserModelID).
+ * Packaged: <resources>/icon.ico|icon.png (electron-builder extraResources); dev: resources/icon.png.
+ */
+function appIcon(kind: 'window' | 'notification'): string | undefined {
+  const candidates = app.isPackaged
+    ? [join(process.resourcesPath, kind === 'window' && process.platform === 'win32' ? 'icon.ico' : 'icon.png')]
+    : [join(here, '../../resources/icon.png')]
+  return candidates.find((p) => existsSync(p))
 }
 
 function restoreBounds(s: WindowState): WindowState {
@@ -162,7 +168,7 @@ function createWindow(): void {
     title: 'Media Converter',
     backgroundColor: backgroundColor(),
     autoHideMenuBar: true,
-    icon: devIcon(),
+    icon: appIcon('window'),
     webPreferences: {
       preload: join(here, '../preload/index.cjs'),
       contextIsolation: true,
@@ -226,7 +232,7 @@ function setPreventSleep(on: boolean): void {
 
 function notify(title: string, body: string): void {
   if (!Notification.isSupported()) return
-  const n = new Notification({ title, body, icon: devIcon(), silent: false })
+  const n = new Notification({ title, body, icon: appIcon('notification'), silent: false })
   n.on('click', focusWindow)
   n.show()
 }

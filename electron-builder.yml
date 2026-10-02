@@ -30,6 +30,11 @@ asarUnpack:
 # ffmpeg/ffprobe: each platform section below adds resources/bin/<platform>-${arch} → <resources>/bin
 # (named explicitly because the ${platform} macro expands to the *host* platform).
 extraResources:
+  # window / taskbar / notification icons (set explicitly at runtime so Windows never falls back to Electron's)
+  - from: build/icon.ico
+    to: icon.ico
+  - from: resources/icon.png
+    to: icon.png
   - from: THIRD_PARTY_NOTICES.md
     to: THIRD_PARTY_NOTICES.md
   - from: LICENSE
