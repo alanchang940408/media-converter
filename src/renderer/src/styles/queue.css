@@ -822,8 +822,17 @@
   color: var(--text-2);
 }
 
-.pb-apply {
-  width: 100%;
+.pb-name .pb-default {
+  flex-shrink: 0;
+  margin-left: auto;
+  padding: 0 6px;
+  border-radius: 999px;
+  border: 1px solid var(--accent);
+  color: var(--accent-text);
+  font-size: var(--fs-xs);
+  font-style: normal;
+  font-weight: 600;
+  line-height: 1.4;
 }
 
 /* ───────────── status bar ───────────── */

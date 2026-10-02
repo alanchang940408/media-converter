@@ -1,14 +1,15 @@
-// Queue sidebar: searchable preset list; click to select, apply to selected jobs, or drag onto a row.
+// Queue sidebar: searchable preset list. Click applies to the selected jobs right away (or, with nothing selected,
+// makes the preset the default for newly added files); a preset can also be dragged onto a row.
 import { useEffect, useMemo, useState } from 'react'
 import { ChevronDown, ChevronRight, FilePen, Film, Image as ImageIcon, Lock, Music, PanelRightClose, Search, Settings2, X } from 'lucide-react'
 import type { Preset } from '../../../shared/types'
-import { applyPreset, setView, toast, togglePresetBrowser, tNow, useLocale, useStore, useT } from '../store'
+import { applyPreset, saveSettings, setView, toast, togglePresetBrowser, tNow, useLocale, useStore, useT } from '../store'
 import type { MessageKey } from '../i18n'
 import { groupByCategory, isAudioPreset, isEditableJob, isPresetCompatible, presetDescription, presetName } from '../lib/presets'
 import { presetSummary } from '../lib/labels'
 import { DND_PRESET, dragState } from '../lib/dnd'
 import { FILE_OP_ICON } from '../lib/fileops'
-import { Button, IconButton, Segmented, cx } from './ui'
+import { IconButton, Segmented, cx } from './ui'
 
 export function PresetBrowser() {
   const t = useT()
@@ -18,7 +19,7 @@ export function PresetBrowser() {
   const selected = useStore((s) => s.selected)
   const [tab, setTab] = useState<'video' | 'image' | 'file'>('video')
   const [q, setQ] = useState('')
-  const [sel, setSel] = useState<string | null>(null)
+  const settings = useStore((s) => s.settings)
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set())
 
   const selectedJobs = useMemo(() => jobs.filter((j) => selected.includes(j.id)), [jobs, selected])
@@ -46,17 +47,24 @@ export function PresetBrowser() {
   }, [presets, tab, q, locale, t])
 
   const groups = groupByCategory(filtered)
-  const selPreset = presets.find((p) => p.id === sel) ?? null
-  const targets = selPreset ? selectedJobs.filter((j) => isEditableJob(j) && isPresetCompatible(j, selPreset)) : []
+  const defaultId = tab === 'video' ? settings.lastVideoPresetId : tab === 'image' ? settings.lastImagePresetId : settings.lastFilePresetId
 
-  const apply = async (p: Preset | null = selPreset): Promise<void> => {
-    if (!p) return
-    const ids = selectedJobs.filter((j) => isEditableJob(j) && isPresetCompatible(j, p)).map((j) => j.id)
-    if (!ids.length) {
-      toast('info', tNow('browser.noTargets'))
+  // Click = act: apply to every selected kind-compatible job, or (nothing selected) set the default for new files.
+  const choose = async (p: Preset): Promise<void> => {
+    const name = presetName(p, locale)
+    if (!selectedJobs.length) {
+      const patch = p.kind === 'video' ? { lastVideoPresetId: p.id } : p.kind === 'image' ? { lastImagePresetId: p.id } : { lastFilePresetId: p.id }
+      await saveSettings(patch)
+      toast('success', tNow('browser.defaultSet', { name }))
       return
     }
-    if (await applyPreset(ids, p.id)) toast('success', tNow('browser.applied', { name: presetName(p, locale), n: ids.length }))
+    const ids = selectedJobs.filter((j) => isEditableJob(j) && isPresetCompatible(j, p)).map((j) => j.id)
+    if (!ids.length) {
+      toast('info', tNow('browser.noneFit', { n: selectedJobs.length }))
+      return
+    }
+    const skipped = selectedJobs.length - ids.length
+    if (await applyPreset(ids, p.id)) toast('success', tNow('browser.applied', { name, n: ids.length }), skipped ? tNow('browser.skipped', { n: skipped }) : undefined)
   }
 
   const toggleGroup = (key: string): void =>
@@ -113,29 +121,27 @@ export function PresetBrowser() {
                 list.map((p) => {
                   const Icon = p.kind === 'file' ? FILE_OP_ICON[p.operation] : p.kind === 'image' ? ImageIcon : isAudioPreset(p) ? Music : Film
                   const desc = presetDescription(p, locale)
+                  const isDefault = p.id === defaultId
                   return (
                     <div
                       key={p.id}
                       role="option"
-                      aria-selected={sel === p.id}
+                      aria-selected={isDefault}
                       tabIndex={0}
-                      className={cx('pb-item', sel === p.id && 'selected')}
+                      className={cx('pb-item', isDefault && 'selected')}
                       draggable
                       title={desc ? `${presetName(p, locale)}\n${desc}` : presetName(p, locale)}
-                      onClick={() => setSel(p.id)}
-                      onDoubleClick={() => void apply(p)}
+                      onClick={() => void choose(p)}
                       onKeyDown={(e) => {
-                        if (e.key === 'Enter') void apply(p)
-                        else if (e.key === ' ') {
+                        if (e.key === 'Enter' || e.key === ' ') {
                           e.preventDefault()
-                          setSel(p.id)
+                          void choose(p)
                         }
                       }}
                       onDragStart={(e) => {
                         dragState.presetId = p.id
                         e.dataTransfer.effectAllowed = 'copy'
                         e.dataTransfer.setData(DND_PRESET, p.id)
-                        setSel(p.id)
                       }}
                       onDragEnd={() => (dragState.presetId = null)}
                     >
@@ -144,6 +150,11 @@ export function PresetBrowser() {
                         <div className="pb-name">
                           <span>{presetName(p, locale)}</span>
                           {p.builtIn && <Lock size={11} className="lock" aria-label={t('presets.builtIn')} />}
+                          {isDefault && (
+                            <em className="pb-default" title={t('browser.defaultHint')}>
+                              {t('browser.defaultBadge')}
+                            </em>
+                          )}
                         </div>
                         <div className="pb-sub">{presetSummary(p, t)}</div>
                       </div>
@@ -155,12 +166,9 @@ export function PresetBrowser() {
         })}
       </div>
       <div className="pb-foot">
-        <div className="pb-foot-hint">
-          {!selectedJobs.length ? t('browser.hintSelectJobs') : selPreset ? (targets.length ? t('browser.willApply', { n: targets.length }) : t('browser.noCompatible')) : t('browser.hintPick')}
+        <div className="pb-foot-hint" aria-live="polite">
+          {selectedJobs.length ? t('browser.hintClickApply', { n: selectedJobs.length }) : t('browser.hintClickDefault')}
         </div>
-        <Button variant="primary" className="pb-apply" disabled={!selPreset || !targets.length} onClick={() => void apply()}>
-          {t('browser.apply')}
-        </Button>
       </div>
     </aside>
   )
