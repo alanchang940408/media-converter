@@ -31,6 +31,16 @@ export interface ProcessedFile {
 }
 
 export const emptyWatchFolderFile = (): WatchFolderFile => ({ version: 1, folders: [] })
+
+/** Validate watch-folders.json (null → defaults); entries that are not folders are dropped. */
+export function parseWatchFolderFile(raw: unknown): WatchFolderFile | null {
+  if (!raw || typeof raw !== 'object' || !Array.isArray((raw as WatchFolderFile).folders)) return null
+  const folders = (raw as WatchFolderFile).folders.filter(
+    (f): f is WatchFolder => !!f && typeof f === 'object' && typeof f.id === 'string' && typeof f.path === 'string' && !!f.path,
+  )
+  for (const f of folders) if (!Array.isArray(f.presetIds)) f.presetIds = []
+  return { version: 1, folders }
+}
 export const emptyProcessedFile = (): ProcessedFile => ({ version: 1, entries: {} })
 
 export interface WatchDeps {
@@ -81,10 +91,12 @@ export function makeIgnored(f: WatchFolder): (p: string, stats?: Stats) => boole
   const rootKey = pathKey(f.path)
   const outKey = pathKey(effectiveOutputDir(f))
   const srcKey = pathKey(sourceArchiveDir(f))
+  // an output folder above the watch folder must not hide the whole watch folder (handleFile keeps outputs out of it)
+  const ignoreOut = !isInside(rootKey, outKey)
   return (p, stats) => {
     const key = pathKey(p)
     if (key === rootKey) return false
-    if (isInside(key, outKey) || isInside(key, srcKey)) return true
+    if ((ignoreOut && isInside(key, outKey)) || isInside(key, srcKey)) return true
     const name = basename(p)
     const lower = name.toLowerCase()
     if (name.startsWith('.') || name.startsWith('~$') || JUNK_FILES.has(lower)) return true
@@ -308,8 +320,12 @@ export class WatchManager {
 
       // subfolders of the watch folder are recreated below the output folder (preserveStructure)
       const rawRel = relative(folder.path, dirname(abs))
-      const rel = rawRel && !rawRel.startsWith('..') && !isAbsolute(rawRel) ? rawRel : ''
+      let rel = rawRel && !rawRel.startsWith('..') && !isAbsolute(rawRel) ? rawRel : ''
       const out = effectiveOutputDir(folder)
+      // output folder above the watch folder: a recreated subfolder could fall back inside the watched tree (and be
+      // picked up again) → put that file's outputs directly into the output folder instead
+      const rootKey = pathKey(folder.path)
+      if (rel && !isInside(pathKey(out), rootKey) && isInside(pathKey(join(out, rel)), rootKey)) rel = ''
 
       const entryKey = `${folder.id}|${fileKey}`
       const entry: PendingSource | null =

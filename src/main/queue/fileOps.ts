@@ -1,7 +1,7 @@
 // File-system helpers for rename / copy / move jobs and their undo. Pure Node; the primitive operations are
 // injectable so tests can simulate cross-volume moves (EXDEV) and locked files.
 import { createReadStream, createWriteStream, type Stats } from 'node:fs'
-import { copyFile, rename, rm, stat, unlink, utimes } from 'node:fs/promises'
+import { copyFile, lstat, rename, rm, stat, unlink, utimes } from 'node:fs/promises'
 import { pipeline } from 'node:stream/promises'
 import { pathKey, RENAME_TEMP_SUFFIX, TEMP_SUFFIX } from './outputPath'
 
@@ -48,6 +48,41 @@ export function abortError(): Error {
 /** Intermediate name for a case-only rename of `source` (kept on crash so the file can be recovered). */
 export function caseTempPath(source: string, tag: string): string {
   return `${source}.${tag}${RENAME_TEMP_SUFFIX}`
+}
+
+/**
+ * Do two paths name the very same file (same volume + file id)? Catches aliases a path comparison misses: junctions /
+ * symlinked folders, 8.3 short names, mapped drive vs UNC, trailing dots or spaces Windows drops. False when either
+ * path is missing or the file system reports no file ids.
+ */
+export async function isSameFile(a: string, b: string): Promise<boolean> {
+  const [sa, sb] = await Promise.all([stat(a, { bigint: true }).catch(() => null), stat(b, { bigint: true }).catch(() => null)])
+  if (!sa || !sb || sa.ino === 0n || sb.ino === 0n) return false
+  return sa.dev === sb.dev && sa.ino === sb.ino
+}
+
+export interface FileStamp {
+  /** "dev:ino"; absent when the file system reports no file ids. */
+  fileId?: string
+  size: number
+  mtimeMs: number
+}
+
+/** Identity + size + modified time of a file (null when missing). */
+export async function fileStampOf(p: string): Promise<FileStamp | null> {
+  const st = await stat(p, { bigint: true }).catch(() => null)
+  if (!st) return null
+  return { ...(st.ino !== 0n ? { fileId: `${st.dev}:${st.ino}` } : {}), size: Number(st.size), mtimeMs: Number(st.mtimeMs) }
+}
+
+/**
+ * Is the file now at a journaled path a different one than the operation left there? Only when both file ids are known
+ * and differ AND size or modified time changed (FAT / exFAT ids can change on rename; a same-id file was only edited).
+ */
+export function isReplacedFile(recorded: Partial<FileStamp>, now: FileStamp): boolean {
+  if (!recorded.fileId || !now.fileId || recorded.fileId === now.fileId) return false
+  if (typeof recorded.size !== 'number' || typeof recorded.mtimeMs !== 'number') return true
+  return recorded.size !== now.size || Math.abs(recorded.mtimeMs - now.mtimeMs) > 2000
 }
 
 /** fs.rename that retries briefly while Windows readers (AV scanners, thumbnailers) hold the file. */
@@ -124,6 +159,11 @@ export async function relocate(fs: FileOpsFs, from: string, to: string, opts: Re
     const tmp = caseTempPath(from, opts.tag)
     await renameWithRetry(fs, from, tmp)
     try {
+      // `to` was `from` spelled differently; a file still found there is a different one (a case-sensitive folder,
+      // or names only our key folds together, e.g. the Kelvin sign and "k") → never replace it
+      if (await lstat(to).then(() => true, () => false)) {
+        throw Object.assign(new Error(`EEXIST: file already exists, rename '${from}' -> '${to}'`), { code: 'EEXIST' })
+      }
       await renameWithRetry(fs, tmp, to)
     } catch (err) {
       await renameWithRetry(fs, tmp, from).catch(() => undefined)

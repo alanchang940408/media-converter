@@ -353,7 +353,7 @@ function FilesPanel({
   const folders = entries.length - files
 
   const addFiles = async (): Promise<void> => {
-    const paths = await guard(() => api.pickFiles('media', true))
+    const paths = await guard(() => api.pickFiles('any', true))
     if (paths?.length) addFileOpsEntries(paths.map((path) => ({ path, isFolder: false })))
   }
   const addFolder = async (): Promise<void> => {

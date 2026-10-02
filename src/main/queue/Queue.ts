@@ -10,6 +10,7 @@ import { renderNameTemplate, type NamingVars } from '../../shared/naming'
 import type {
   AddJobsRequest,
   AddJobsResult,
+  ConflictPolicy,
   EncoderCapabilities,
   FileOperation,
   FileOpPreviewItem,
@@ -34,7 +35,19 @@ import type { JsonStore } from '../jsonStore'
 import { DEFAULT_FILE_PRESET_ID } from '../presets/builtin'
 import type { PresetLookup } from '../presets/store'
 import type { SettingsAccess } from '../settings'
-import { caseTempPath, copyData, CopySizeError, type FileOpsFs, nodeFileOps, relocate, renameWithRetry } from './fileOps'
+import {
+  caseTempPath,
+  copyData,
+  CopySizeError,
+  type FileOpsFs,
+  type FileStamp,
+  fileStampOf,
+  isReplacedFile,
+  isSameFile,
+  nodeFileOps,
+  relocate,
+  renameWithRetry,
+} from './fileOps'
 import { MAX_JOURNAL_RUNS, MemoryJournal, type FileOpJournalRun, type JournalStore } from './journal'
 import {
   exactExt,
@@ -339,7 +352,19 @@ export class Queue {
     this.fs = { ...nodeFileOps, ...deps.fileOps }
     this.journal = deps.journal ?? new MemoryJournal()
     const data = deps.store.get()
-    this.jobs = Array.isArray(data?.jobs) ? data.jobs.filter((j) => j && typeof j.id === 'string' && typeof j.source === 'string') : []
+    // a damaged queue.json must not take the app down: drop entries that are not jobs at all
+    this.jobs = Array.isArray(data?.jobs)
+      ? data.jobs.filter(
+          (j) =>
+            !!j &&
+            typeof j.id === 'string' &&
+            typeof j.source === 'string' &&
+            (j.kind === 'video' || j.kind === 'image' || j.kind === 'file') &&
+            !!j.output &&
+            typeof j.output === 'object' &&
+            typeof j.output.nameTemplate === 'string',
+        )
+      : []
     this.meta = data?.meta && typeof data.meta === 'object' ? data.meta : {}
     for (const job of this.jobs) {
       if (job.status === 'running') {
@@ -1053,7 +1078,12 @@ export class Queue {
 
       // an engine that ignored the signal still counts as cancelled
       this.throwIfAborted(signal)
-      await this.commit(job, entry, tmp, dir, ext)
+      if ((await this.commit(job, entry, tmp, dir, ext)) === 'skipped') {
+        await removeWithRetry(tmp)
+        tmp = null
+        this.settle(job, entry, { status: 'skipped', outputPath: job.outputPath! })
+        return
+      }
       tmp = null
       try {
         job.outputSizeBytes = (await stat(job.outputPath!)).size
@@ -1071,12 +1101,19 @@ export class Queue {
     }
   }
 
-  private claimOutput(job: Job, entry: ActiveJob, dir: string, baseName: string, ext: string): { path: string; skip: boolean } {
+  private claimOutput(
+    job: Job,
+    entry: ActiveJob,
+    dir: string,
+    baseName: string,
+    ext: string,
+    conflict: ConflictPolicy = job.output.conflict,
+  ): { path: string; skip: boolean } {
     const r = resolveOutputPath({
       dir,
       baseName,
       ext,
-      conflict: job.output.conflict,
+      conflict,
       source: job.source,
       reserved: this.reserved,
       // never write onto a file another job still has to read
@@ -1094,17 +1131,27 @@ export class Queue {
     entry.reserved = null
   }
 
-  /** Move the finished temp file onto the final name. */
-  private async commit(job: Job, entry: ActiveJob, tmp: string, dir: string, ext: string): Promise<void> {
+  /**
+   * Move the finished temp file onto the final name. 'skipped' (temp file left to the caller) when policy 'skip' finds
+   * that the name was taken while encoding.
+   */
+  private async commit(job: Job, entry: ActiveJob, tmp: string, dir: string, ext: string): Promise<'done' | 'skipped'> {
     let final = job.outputPath!
-    if (job.output.conflict !== 'overwrite' && existsSync(final)) {
-      // something else created the file while we were encoding: never clobber it
-      const base = basename(final).slice(0, -(ext.length + 1))
-      this.release(entry)
-      final = this.claimOutput(job, entry, dir, base, ext).path
-      job.outputPath = final
+    if (existsSync(final)) {
+      // the output folder may be another path to the source's folder (junction, short name, UNC…): never the source
+      const isSource = await isSameFile(final, job.source)
+      if (isSource || job.output.conflict !== 'overwrite') {
+        // something else created the file while we were encoding: never clobber it
+        const base = basename(final).slice(0, -(ext.length + 1))
+        this.release(entry)
+        const r = this.claimOutput(job, entry, dir, base, ext, isSource || job.output.conflict !== 'skip' ? 'rename' : 'skip')
+        job.outputPath = r.path
+        if (r.skip) return 'skipped'
+        final = r.path
+      }
     }
     await renameWithRetry(nodeFileOps, tmp, final)
+    return 'done'
   }
 
   // ───────────────────────────── file operations (rename / copy / move) ─────────────────────────────
@@ -1323,7 +1370,7 @@ export class Queue {
         const from = job.source
         await relocate(this.fs, from, target.path, { tag: job.id.slice(0, 8), signal, onProgress })
         committed = true
-        this.recordFileOp(op, from, target.path)
+        this.recordFileOp(op, from, target.path, await fileStampOf(target.path))
       }
       job.outputPath = target.path
       job.outputSizeBytes = st.size
@@ -1341,7 +1388,9 @@ export class Queue {
   /** Dry run of the given queued file jobs in queue order — same rules as a real run, nothing is touched. */
   async previewFileOps(jobIds: string[]): Promise<FileOpPreviewItem[]> {
     const wanted = new Set(Array.isArray(jobIds) ? jobIds : [])
-    const list = this.jobs.filter((j) => wanted.has(j.id) && j.kind === 'file' && j.status === 'queued')
+    // a start runs every queued file job in queue order, so the ones not asked about are simulated too (an earlier one
+    // may claim a name first); only the requested ones are returned
+    const list = this.jobs.filter((j) => j.kind === 'file' && j.status === 'queued')
     const listed = new Set(list.map((j) => j.id))
     const now = new Date()
     const prepared = await mapLimit(list, 8, async (job) => {
@@ -1369,7 +1418,7 @@ export class Queue {
       if (!p.ok || !isFileOperation(op)) {
         // missing source (or a damaged job): the run would not touch anything either
         stays.add(job.id)
-        items.push({ jobId: job.id, source: job.source, target: null, status: 'skip' })
+        if (wanted.has(job.id)) items.push({ jobId: job.id, source: job.source, target: null, status: 'skip' })
         continue
       }
       const freedByRunning = new Set<string>()
@@ -1407,7 +1456,7 @@ export class Queue {
           return existsSync(path)
         },
       })
-      items.push({ jobId: job.id, source: job.source, target: r.status === 'skip' ? null : r.path, status: r.status })
+      if (wanted.has(job.id)) items.push({ jobId: job.id, source: job.source, target: r.status === 'skip' ? null : r.path, status: r.status })
       if (r.status === 'skip' || r.status === 'unchanged') {
         stays.add(job.id)
         continue
@@ -1425,14 +1474,14 @@ export class Queue {
     return items
   }
 
-  private recordFileOp(op: 'move' | 'rename', from: string, to: string): void {
+  private recordFileOp(op: 'move' | 'rename', from: string, to: string, stamp: FileStamp | null): void {
     const journal = this.journal.get()
     if (!this.journalRun) {
       this.journalRun = { id: randomUUID(), startedAt: Date.now(), entries: [] }
       journal.runs.push(this.journalRun)
       if (journal.runs.length > MAX_JOURNAL_RUNS) journal.runs.splice(0, journal.runs.length - MAX_JOURNAL_RUNS)
     }
-    this.journalRun.entries.push({ from, to, op })
+    this.journalRun.entries.push({ from, to, op, ...stamp })
     this.journal.save()
   }
 
@@ -1477,6 +1526,12 @@ export class Queue {
       try {
         if (!existsSync(e.to)) {
           failed.push({ path: e.to, error: this.tr('error.undoMissing') })
+          continue
+        }
+        // the name may now belong to another file (the original was moved away and something else took its place)
+        const now = e.fileId ? await fileStampOf(e.to) : null
+        if (now && isReplacedFile(e, now)) {
+          failed.push({ path: e.to, error: this.tr('error.undoReplaced') })
           continue
         }
         if (pathKey(e.from) !== pathKey(e.to) && existsSync(e.from)) {

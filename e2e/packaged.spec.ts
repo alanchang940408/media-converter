@@ -19,7 +19,7 @@ test('packaged app uses the bundled ffmpeg and converts video + image', async ()
   })
   try {
     const page = await app.firstWindow()
-    await page.waitForFunction(() => !!window.api)
+    await page.waitForFunction(() => !!(globalThis as { api?: unknown }).api)
     await api(page, 'saveSettings', { autoStart: false, notifyOnFinish: false, preventSleep: false })
 
     const caps = await api(page, 'getCapabilities', true)

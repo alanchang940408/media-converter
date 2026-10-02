@@ -7,6 +7,10 @@ export interface FileOpJournalEntry {
   /** Where the job put it. */
   to: string
   op: 'move' | 'rename'
+  /** "dev:ino", size and mtime of the file at `to` right after the operation (undo leaves a different file alone). */
+  fileId?: string
+  size?: number
+  mtimeMs?: number
 }
 
 export interface FileOpJournalRun {
@@ -52,7 +56,14 @@ export function parseJournal(raw: unknown): FileOpJournal | null {
       id: r.id,
       startedAt: typeof r.startedAt === 'number' ? r.startedAt : 0,
       ...(typeof r.finishedAt === 'number' ? { finishedAt: r.finishedAt } : {}),
-      entries: entries.map((e) => ({ from: e.from, to: e.to, op: e.op })),
+      entries: entries.map((e) => ({
+        from: e.from,
+        to: e.to,
+        op: e.op,
+        ...(typeof e.fileId === 'string' && e.fileId ? { fileId: e.fileId } : {}),
+        ...(typeof e.size === 'number' ? { size: e.size } : {}),
+        ...(typeof e.mtimeMs === 'number' ? { mtimeMs: e.mtimeMs } : {}),
+      })),
     })
   }
   return { version: 1, runs: runs.slice(-MAX_JOURNAL_RUNS) }

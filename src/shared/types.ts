@@ -568,4 +568,4 @@ export interface ImagePreviewResult {
   outHeight: number
 }
 
-export type FileKindFilter = 'media' | 'video' | 'image' | 'audio' | 'watermark' | 'presets'
+export type FileKindFilter = 'media' | 'video' | 'image' | 'audio' | 'watermark' | 'presets' | 'any'

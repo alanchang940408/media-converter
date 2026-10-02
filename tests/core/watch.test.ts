@@ -290,4 +290,27 @@ describe('WatchManager', () => {
     await sleep(800)
     expect(q.requests).toHaveLength(1)
   })
+
+  it('an output folder above the watch folder does not hide it, and outputs never land back inside it', async () => {
+    const q = new FakeQueue()
+    const m = makeManager(q)
+    await m.start()
+    // watch <tmp>/watch me 監看, output <tmp>: a subfolder named like the watch folder would map back into it
+    await m.save(folder({ outputDir: tmp.dir, includeSubfolders: true, presetIds: ['img-png'] }))
+    await m.whenReady()
+    touch(join(watched, 'top.png'))
+    await waitFor(() => q.requests.length === 1, 8000, 'file directly in the watch folder')
+    expect(q.requests[0].output).toMatchObject({ dir: tmp.dir, preserveStructure: true })
+    expect(q.internals[0]).toEqual({ relativeDir: '' })
+    const mirror = join(watched, 'watch me 監看', 'day')
+    mkdirSync(mirror, { recursive: true })
+    touch(join(mirror, 'deep.png'))
+    await waitFor(() => q.requests.length === 2, 8000, 'nested file')
+    // <tmp>/watch me 監看/day would be inside the watch folder → flattened into the output folder
+    expect(q.internals[1]).toEqual({ relativeDir: '' })
+    mkdirSync(join(watched, 'other'), { recursive: true })
+    touch(join(watched, 'other', 'x.png'))
+    await waitFor(() => q.requests.length === 3, 8000, 'other nested file')
+    expect(q.internals[2]).toEqual({ relativeDir: 'other' })
+  })
 })

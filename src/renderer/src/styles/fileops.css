@@ -45,6 +45,20 @@
   color: var(--accent-text);
 }
 
+/* The undo button makes the queue toolbar much longer: collapse the other secondary buttons to icons sooner
+   so the toolbar does not run under the preset browser (their labels stay in the tooltips). */
+@container queue (max-width: 1240px) {
+  .toolbar:has(.tb-undo) .tb-collapsible:not(.tb-undo) .btn-label,
+  .toolbar:has(.tb-undo) .tb-collapsible:not(.tb-undo) .btn-icon-right {
+    display: none;
+  }
+
+  .toolbar:has(.tb-undo) .tb-collapsible:not(.tb-undo) {
+    width: 30px;
+    padding: 0;
+  }
+}
+
 /* ───────────── queue rows: file jobs, recreated subfolders ───────────── */
 .job-name.has-target {
   display: flex;
@@ -596,7 +610,8 @@
   grid-template-columns: minmax(0, 1fr) 14px minmax(0, 1fr);
   align-items: center;
   gap: 8px;
-  font-family: var(--mono);
+  /* UI font like the preview table: monospace has no CJK glyphs and the fallback leaves wide gaps around Latin runs */
+  font-variant-numeric: tabular-nums;
   font-size: 12px;
   line-height: 1.6;
 }

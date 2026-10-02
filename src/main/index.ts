@@ -18,7 +18,14 @@ import { emptyJournal, parseJournal, type FileOpJournal } from './queue/journal'
 import { emptyQueue, Queue, type PersistedQueue } from './queue/Queue'
 import { defaultSettings, sanitizeSettings, SettingsManager } from './settings'
 import { ThumbnailService } from './thumbnails'
-import { emptyProcessedFile, emptyWatchFolderFile, WatchManager, type ProcessedFile, type WatchFolderFile } from './watch/WatchManager'
+import {
+  emptyProcessedFile,
+  emptyWatchFolderFile,
+  parseWatchFolderFile,
+  WatchManager,
+  type ProcessedFile,
+  type WatchFolderFile,
+} from './watch/WatchManager'
 
 applyUserDataOverride()
 app.setAppUserModelId('app.mediaconverter.desktop')
@@ -272,7 +279,7 @@ async function startApp(): Promise<void> {
     queue,
     presets,
     folders: openStore<WatchFolderFile>('watch-folders.json', emptyWatchFolderFile, {
-      parse: (raw) => (raw && typeof raw === 'object' && Array.isArray((raw as WatchFolderFile).folders) ? (raw as WatchFolderFile) : null),
+      parse: parseWatchFolderFile,
     }),
     processed: openStore<ProcessedFile>('watch-processed.json', emptyProcessedFile, {
       parse: (raw) =>

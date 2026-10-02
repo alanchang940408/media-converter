@@ -573,7 +573,7 @@ export const BUILTIN_FILE_PRESETS: FilePreset[] = [
     'copy',
     { 'zh-TW': '複製並重新命名', en: 'Copy & rename', ja: 'コピーして名前を変更' },
     {
-      'zh-TW': '把檔案原封不動複製到輸出資料夾並套用新檔名，原始檔案完全不動。',
+      'zh-TW': '把檔案原樣複製到輸出資料夾並套用新檔名，原始檔案不會被更動。',
       en: 'Copies the files unchanged into the output folder with new names. The originals are left as they are.',
       ja: 'ファイルを変更せずに出力フォルダーへコピーし、新しい名前を付けます。元のファイルはそのままです。',
     },

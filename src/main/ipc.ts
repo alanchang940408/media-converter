@@ -56,6 +56,8 @@ function filtersFor(kind: FileKindFilter): FileFilter[] {
       return [{ name: t('filter.watermark'), extensions: [...WATERMARK_EXTS] }, all]
     case 'presets':
       return [{ name: t('filter.presets'), extensions: ['json'] }, all]
+    case 'any':
+      return [all]
   }
 }
 
@@ -66,6 +68,7 @@ const DIALOG_TITLE: Record<FileKindFilter, I18nKey> = {
   image: 'dialog.addImages',
   watermark: 'dialog.chooseWatermark',
   presets: 'dialog.importPresets',
+  any: 'dialog.addFiles',
 }
 
 async function openDialog(win: BrowserWindow | null, opts: OpenDialogOptions): Promise<string[]> {

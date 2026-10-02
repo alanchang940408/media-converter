@@ -167,10 +167,11 @@ export function tNow(key: MessageKey, params?: Record<string, string | number>):
 
 let toastSeq = 0
 
-export function toast(kind: Toast['kind'], text: string, detail?: string, action?: ToastAction): void {
+export function toast(kind: Toast['kind'], text: string, detail?: string, action?: ToastAction): number {
   const id = ++toastSeq
   set((s) => ({ toasts: [...s.toasts.slice(-4), { id, kind, text, detail, action }] }))
   setTimeout(() => dismissToast(id), action ? 12000 : kind === 'error' ? 8000 : 4000)
+  return id
 }
 
 export function dismissToast(id: number): void {
@@ -450,6 +451,9 @@ export function clearFileOpsEntries(): void {
   set((s) => (s.fileOps ? { fileOps: { entries: [] } } : {}))
 }
 
+let undoToastId: number | null = null
+let undoToastFor: string | null = null
+
 /**
  * Reload the undo journal info. With `announce`, a run that produced a new journal entry shows a toast with
  * an Undo button. Errors are ignored quietly (older main processes do not have the method).
@@ -464,9 +468,18 @@ export async function refreshFileOpUndo(announce: boolean): Promise<void> {
     info = null
   }
   set({ fileOpUndo: info })
+  // the "Undo" toast only makes sense while that journal entry is still the one main would undo
+  if (undoToastId != null && info?.id !== undoToastFor) dismissUndoToast()
   if (announce && info && info.id !== prev?.id) {
-    toast('success', tNow('fileop.undoToast', { n: info.count }), fileOpUndoDetail(info), { label: tNow('fileop.undoAction'), run: () => void undoLastFileOp() })
+    undoToastId = toast('success', tNow('fileop.undoToast', { n: info.count }), fileOpUndoDetail(info), { label: tNow('fileop.undoAction'), run: () => void undoLastFileOp() })
+    undoToastFor = info.id
   }
+}
+
+function dismissUndoToast(): void {
+  if (undoToastId != null) dismissToast(undoToastId)
+  undoToastId = null
+  undoToastFor = null
 }
 
 function fileOpUndoDetail(info: FileOpUndoInfo): string {
@@ -489,6 +502,7 @@ export async function undoLastFileOp(): Promise<void> {
   })
   if (!ok) return
   undoing = true
+  dismissUndoToast()
   try {
     const res = await guard(() => api.undoFileOps(), 'fileop.undoFailed')
     if (res) {

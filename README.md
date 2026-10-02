@@ -28,7 +28,9 @@ Media Converter 是一套桌面批次轉檔程式，結合了兩種常見的工�
 - **浮水印**：文字（可用 `{name}`、`{date}`）或圖片 Logo，九宮格位置、透明度、大小可調，影片與圖片都能用。
 - **預覽與裁剪**：影片可逐格預覽套用預設後的畫面，設定入點／出點只轉一段；圖片可即時比對處理前後。
 - **圖片動作鏈**：縮放（等比、填滿、長邊、短邊、百分比…）、裁切、旋轉、翻轉、自動轉正、亮度／對比／飽和度／色相／Gamma、灰階、懷舊、負片、銳利化、模糊、加邊框、自動去白邊、浮水印。
-- **批次命名範本**：用 `{name}` `{ext}` `{preset}` `{date}` `{time}` `{counter}` `{counter:3}` `{width}` `{height}` `{parent}` 組合輸出檔名；檔名衝突時可自動改名、覆寫或略過。
+- **批次重新命名／複製／移動**：不轉檔、不更動檔案內容，任何類型的檔案都能用。執行前先看「目前檔名 → 新檔名」預覽表（會撞名的檔案會標出來），重新命名和移動做完後還能一鍵復原。詳見下方「[批次重新命名／複製／移動](#批次重新命名複製移動)」。
+- **批次命名範本**：用 `{name}` `{ext}` `{preset}` `{date}` `{time}` `{counter}` `{counter:3}` `{width}` `{height}` `{parent}` `{exifdate}` `{exiftime}` `{mdate}` 組合輸出檔名；檔名衝突時可自動加上編號、覆寫或略過。
+- **保留資料夾結構**：加入整個資料夾並指定輸出資料夾時，會在輸出資料夾裡照原樣重建子資料夾（轉檔、檔案操作、監看資料夾都適用）。
 - 輸出先寫入暫存檔，成功後才改名，取消或失敗不會留下半成品；路徑含空白或中日文都沒問題。
 
 ### 安裝（一般使用者）
@@ -40,7 +42,7 @@ Media Converter 是一套桌面批次轉檔程式，結合了兩種常見的工�
 | `Media Converter-Setup-<版本>.exe` | 安裝版。可選安裝位置，會建立桌面與開始選單捷徑，可從「設定 → 應用程式」解除安裝。安裝程式提供繁中／英文／日文。 |
 | `Media Converter-Portable-<版本>.exe` | 免安裝版。單一執行檔，放在隨身碟或任何資料夾直接執行（每次啟動會先解壓縮，開啟稍慢）。 |
 
-兩種版本都已內建 ffmpeg。
+兩種版本都已內建 ffmpeg，檔案大小各約 152 MB。
 
 **macOS / Linux**：由 GitHub Actions 自動建置（`.dmg` 分 Intel x64 與 Apple Silicon arm64；Linux 提供 `.AppImage` 與 `.deb`）。這兩個平台目前屬於「盡力支援」，尚未在實機上完整測試。
 
@@ -54,6 +56,59 @@ Media Converter 是一套桌面批次轉檔程式，結合了兩種常見的工�
 4. 按下綠色 ▶ 開始。完成後可直接開啟檔案或在檔案總管中顯示。
 
 想要固定流程自動化？到「監看資料夾」新增資料夾並選好預設，之後丟進去的檔案就會自動處理。
+
+### 批次重新命名／複製／移動
+
+只想整理檔名、不想轉檔時用這個功能。它只會改檔名或搬檔案，檔案內容完全不動，任何類型的檔案都可以（照片、影片、PDF、文件…）。
+
+1. 在「佇列」工具列按「**批次重新命名…**」。
+2. 按「加入檔案」或「加入資料夾」，也可以直接把檔案拖進視窗。勾選「包含子資料夾」會連子資料夾裡的檔案一起處理。
+3. 選擇要做什麼：
+
+   | 操作 | 結果 | 能不能復原 |
+   |---|---|---|
+   | 複製並重新命名 | 用新檔名複製到輸出資料夾，原始檔案不動 | 不需要（原檔還在；複製出來的檔案不要的話自行刪除） |
+   | 原地重新命名 | 在原本的資料夾裡直接改檔名 | 可以 |
+   | 移動並重新命名 | 用新檔名搬到輸出資料夾 | 可以 |
+
+4. 選擇存放位置（複製、移動才需要），需要的話打開「**保留資料夾結構**」：子資料夾裡的檔案會放進輸出資料夾裡同名的子資料夾，不會全部擠在一起。
+5. 輸入新檔名範本（點下方的標籤就能插入），選擇「編號順序」和「檔案已存在時」要怎麼處理。下方會即時顯示範例。
+6. 按「**預覽**」：表格列出每個檔案的目前檔名 → 新檔名，會被加上編號、覆寫或略過的檔案會特別標示，可以切換到「需要留意」只看這些。**這一步還不會更動任何檔案**；按「返回」可以再修改。
+7. 確認沒問題後按「**執行**」。完成後，通知和佇列工具列會出現「**復原**」，可以把上一次重新命名或移動的檔案放回原本的名稱和位置。
+
+**編號順序**（決定 `{counter}` 的編號）
+
+- **檔名**：自然排序，`2` 會排在 `10` 前面（不是 `1, 10, 2`）。
+- **修改日期**：最早修改的排在最前面。
+- **拍攝日期**：依照片 EXIF 的拍攝時間，最早的在最前面；沒有拍攝日期的檔案用修改日期代替。
+
+整批檔案（包括子資料夾裡的）從 1 開始連續編號。
+
+**檔名標籤**
+
+| 標籤 | 意思 | 範例 |
+|---|---|---|
+| `{name}` | 原始檔名（不含副檔名） | `IMG_0001` |
+| `{ext}` | 原始副檔名 | `jpg` |
+| `{counter}` | 流水號 | `1`、`2`、`3` |
+| `{counter:3}` | 補零的流水號，冒號後的數字是位數 | `001`、`002` |
+| `{exifdate}` | 照片的拍攝日期（EXIF）；沒有的話用修改日期 | `2026-07-15` |
+| `{exiftime}` | 照片的拍攝時間（時分秒）；沒有的話用修改時間 | `143005` |
+| `{mdate}` | 檔案最後修改的日期 | `2026-09-30` |
+| `{date}`、`{time}` | 執行當下的日期、時間 | `2026-10-02`、`094512` |
+| `{parent}` | 檔案所在資料夾的名稱 | `夏天旅行` |
+| `{preset}` | 預設集名稱 | `複製並重新命名` |
+| `{width}`、`{height}` | 輸出的寬、高（只有轉檔時才有） | `1920` |
+
+例如 `{exifdate}_{counter:3}` 會把照片改成 `2026-07-15_001.jpg`、`2026-07-15_002.jpg`…。副檔名會自動保留，不必寫在範本裡。
+
+**小提醒**
+
+- 檔名重複時可選「自動加上編號」（變成 `名稱 (1).jpg`）、「覆寫」或「略過」。同一批不會產生兩個同名的檔案；被覆寫的檔案無法復原。
+- 復原只保留**最後一次**重新命名／移動。如果之後檔案又被改名或移走，那些檔案會顯示無法復原，其他檔案照常復原。
+- 隱藏檔和系統檔（`Thumbs.db`、`desktop.ini`、`.` 開頭的檔案）會自動略過。
+- 就算開啟了「自動開始」，檔案操作也一定要在預覽後按「執行」才會進行。
+- 三種操作是「預設集 → 檔案」分頁裡的內建預設集，可以另存成自己的版本；加入佇列後的檔案工作也能在工作編輯器裡修改操作、檔名和輸出資料夾。
 
 ### 支援格式
 
@@ -86,7 +141,7 @@ sharp 無法直接讀取的圖片格式（bmp、tga、heic、exr、dds…）會�
 - macOS：`~/Library/Application Support/Media Converter/`
 - Linux：`~/.config/Media Converter/`
 
-裡面有 `settings.json`（設定）、`presets.json`（自訂預設）、`queue.json`（佇列）、`watch-folders.json`（監看資料夾）。解除安裝不會刪除這些檔案；想重置就把整個資料夾刪掉。
+裡面有 `settings.json`（設定）、`presets.json`（自訂預設）、`queue.json`（佇列）、`watch-folders.json`（監看資料夾）、`file-ops-journal.json`（上一次重新命名／移動的復原紀錄）。解除安裝不會刪除這些檔案；想重置就把整個資料夾刪掉。
 
 **想用自己的 ffmpeg？**
 到「設定」指定 ffmpeg 的路徑（`ffmpeg.exe` 或它所在的資料夾，同一個資料夾內必須也有 `ffprobe`）。程式尋找 ffmpeg 的順序是：自訂路徑 → 內建版本 → 系統 PATH。
@@ -114,6 +169,8 @@ node scripts/make-test-media.mjs  # 產生測試素材到 test-media/
 ```
 
 `fetch-ffmpeg` 的其他參數：`--platform win32|darwin|linux`、`--arch x64,arm64`、`--force`、`--strict`（缺少必要編碼器時失敗）、`--url <壓縮檔>`。Windows 使用 BtbN FFmpeg-Builds 的 GPL shared 版（固定版本並驗證 SHA-256）。
+
+`npm run dist` 會在 `release/` 產生 `Media Converter-Setup-<版本>.exe`（安裝版）和 `Media Converter-Portable-<版本>.exe`（免安裝版），各約 152 MB（大部分是內建的 ffmpeg）。兩者都沒有程式碼簽章，第一次執行時 SmartScreen 會顯示「Windows 已保護您的電腦」，點「其他資訊」→「仍要執行」即可。
 
 發佈：推送 `v*` 標籤後，GitHub Actions（`.github/workflows/release.yml`）會在 Windows、macOS、Linux 上分別打包，並建立草稿 Release。
 
@@ -161,7 +218,9 @@ UI languages: Traditional Chinese (default), English, Japanese.
 - **Watermarks** — text (with `{name}` / `{date}`) or image logos, nine anchor positions, opacity and size; for video and images.
 - **Preview & trim** — preview a video frame exactly as the preset renders it and set in/out points; before/after preview for images.
 - **Image action chains** — resize (fit, fill, long/short edge, percent…), crop, rotate, flip, auto-orient, brightness/contrast/saturation/hue/gamma, grayscale, sepia, invert, sharpen, blur, canvas/border, auto-trim, watermark.
-- **Batch rename templates** — `{name}` `{ext}` `{preset}` `{date}` `{time}` `{counter}` `{counter:3}` `{width}` `{height}` `{parent}`; on conflicts rename, overwrite or skip.
+- **Batch rename / copy / move** — no converting, file contents are never touched, works with any file type. A "current name → new name" preview (conflicts highlighted) comes before anything happens, and renames/moves can be undone with one click. See [Batch rename / copy / move](#batch-rename--copy--move).
+- **File-name templates** — `{name}` `{ext}` `{preset}` `{date}` `{time}` `{counter}` `{counter:3}` `{width}` `{height}` `{parent}` `{exifdate}` `{exiftime}` `{mdate}`; on conflicts add a number, overwrite or skip.
+- **Keep folder structure** — when you add a whole folder and choose an output folder, its subfolders are recreated inside the output folder (conversions, file operations and watch folders).
 - Outputs are written to a temporary file and renamed on success, so cancelled or failed jobs never leave partial files. Paths with spaces and CJK characters are fine.
 
 ### Install (end users)
@@ -173,7 +232,7 @@ UI languages: Traditional Chinese (default), English, Japanese.
 | `Media Converter-Setup-<version>.exe` | You want a normal installation: choose the folder, desktop + Start menu shortcuts, uninstall from Settings → Apps. Installer in Traditional Chinese / English / Japanese. |
 | `Media Converter-Portable-<version>.exe` | You want no installation: a single exe you can run from any folder or USB stick (it unpacks itself on every start, so it opens a bit slower). |
 
-Both include ffmpeg.
+Both include ffmpeg and are about 152 MB each.
 
 **macOS / Linux** builds are produced by GitHub Actions (`.dmg` for Intel x64 and Apple Silicon arm64; `.AppImage` and `.deb` for Linux). These platforms are best-effort and not yet fully tested on real machines.
 
@@ -187,6 +246,59 @@ Both include ffmpeg.
 4. Press the green ▶. When a job is done, open the file or reveal it in the file manager.
 
 For hands-off processing, add a **Watch folder** with the presets you want; new files dropped into it are converted automatically.
+
+### Batch rename / copy / move
+
+For when you only want to tidy up file names, not convert anything. It renames or moves files and never changes their contents, so it works with any file type (photos, videos, PDFs, documents…).
+
+1. In the **Queue** toolbar, click **Batch rename…**.
+2. Click **Add files** or **Add folder**, or drag files onto the window. **Include subfolders** also takes the files inside subfolders.
+3. Choose what to do:
+
+   | Operation | Result | Undo |
+   |---|---|---|
+   | Copy & rename | Copies the files into the output folder with new names; the originals stay as they are | Not needed (the originals are untouched; delete the copies yourself if you don't want them) |
+   | Rename in place | Renames the files in the folder they are in | Yes |
+   | Move & rename | Moves the files into the output folder with new names | Yes |
+
+4. Pick the destination (copy and move only) and, if you like, turn on **Keep folder structure** so files from subfolders land in matching subfolders instead of all in one place.
+5. Type the new-name template (click a tag to insert it), then pick the **Numbering order** and the **If the file exists** option. Live examples show the result.
+6. Click **Preview**: a table lists every file's current name → new name; files that get a number added, overwrite something or are skipped are highlighted, and **Needs a look** shows only those. **Nothing has changed yet** — **Back** lets you adjust.
+7. Click **Run**. When it finishes, the notification and the queue toolbar offer **Undo**, which puts the files of the last rename or move back under their old names and locations.
+
+**Numbering order** (what `{counter}` counts by)
+
+- **Name** — natural order: `2` comes before `10` (not `1, 10, 2`).
+- **Date modified** — oldest first.
+- **Date taken** — the photo's EXIF capture time, oldest first; files without one use their modified date.
+
+The whole batch, including files in subfolders, is numbered consecutively from 1.
+
+**Name tags**
+
+| Tag | Meaning | Example |
+|---|---|---|
+| `{name}` | Original file name (without extension) | `IMG_0001` |
+| `{ext}` | Original extension | `jpg` |
+| `{counter}` | Running number | `1`, `2`, `3` |
+| `{counter:3}` | Zero-padded running number; the digit after the colon is the width | `001`, `002` |
+| `{exifdate}` | Date the photo was taken (EXIF); falls back to the modified date | `2026-07-15` |
+| `{exiftime}` | Time the photo was taken (HHmmss); falls back to the modified time | `143005` |
+| `{mdate}` | Date the file was last modified | `2026-09-30` |
+| `{date}`, `{time}` | Date / time when the job runs | `2026-10-02`, `094512` |
+| `{parent}` | Name of the folder the file is in | `Summer trip` |
+| `{preset}` | Preset name | `Copy & rename` |
+| `{width}`, `{height}` | Output width / height (conversions only) | `1920` |
+
+For example, `{exifdate}_{counter:3}` turns photos into `2026-07-15_001.jpg`, `2026-07-15_002.jpg`, … The extension is kept automatically; you don't put it in the template.
+
+**Good to know**
+
+- On name clashes choose **Add a number** (`name (1).jpg`), **Overwrite** or **Skip**. One batch never produces two files with the same name; overwritten files cannot be restored.
+- Undo keeps only the **last** rename/move. Files that were renamed or moved again in the meantime are reported as not restorable; the rest are restored.
+- Hidden and system files (`Thumbs.db`, `desktop.ini`, names starting with `.`) are skipped.
+- File operations never start by themselves, even with **Auto-start** on — they run only when you press **Run** after the preview.
+- The three operations are built-in presets on the **Presets → File** tab; save your own variants there. File jobs in the queue can be edited (operation, name, output folder) in the job editor.
 
 ### Supported formats
 
@@ -218,7 +330,7 @@ In the user-data folder (same for the installed and portable versions):
 - macOS: `~/Library/Application Support/Media Converter/`
 - Linux: `~/.config/Media Converter/`
 
-It holds `settings.json`, `presets.json` (your presets), `queue.json` and `watch-folders.json`. Uninstalling keeps them; delete the folder to reset everything.
+It holds `settings.json`, `presets.json` (your presets), `queue.json`, `watch-folders.json` and `file-ops-journal.json` (the undo record of the last rename/move). Uninstalling keeps them; delete the folder to reset everything.
 
 **How do I use my own ffmpeg?**
 Set the ffmpeg path in **Settings** (the `ffmpeg` executable or its folder; `ffprobe` must be in the same folder). Lookup order: custom path → bundled → system PATH.
@@ -243,6 +355,8 @@ node scripts/make-test-media.mjs  # synthetic test media → test-media/
 ```
 
 More `fetch-ffmpeg` options: `--platform win32|darwin|linux`, `--arch x64,arm64`, `--force`, `--strict` (fail if a required encoder is missing), `--url <archive>`. Windows uses the BtbN FFmpeg-Builds GPL shared build, pinned and SHA-256 verified.
+
+`npm run dist` writes `Media Converter-Setup-<version>.exe` (installer) and `Media Converter-Portable-<version>.exe` (portable) to `release/`, about 152 MB each (mostly the bundled ffmpeg). Neither is code-signed, so on first launch SmartScreen shows "Windows protected your PC": click **More info → Run anyway**.
 
 Releases: pushing a `v*` tag runs `.github/workflows/release.yml`, which builds on Windows, macOS and Linux and creates a draft GitHub release.
 
