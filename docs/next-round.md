@@ -10,7 +10,13 @@ Input already works (ffmpeg decodes all of them). Add them as output containers 
 - Built-in presets: MPEG-2 DVD NTSC 720×480 / PAL 720×576, MPEG-2 1080p, WMV 720p, AVI Xvid 720p, AVI MJPEG (editing-friendly).
 - Integration tests encode each and verify with ffprobe; e2e one of each.
 
-Also pending: top tab label 佇列 → 轉檔 (zh-TW only) — apply after the current UX agent finishes if not yet done.
+## Later (after the items above): "Send to Media Converter" panel for Premiere Pro + After Effects
+- User has BOTH hosts on this machine: Premiere Pro CC 2019 and After Effects 2023 → no UXP; build ONE CEP extension (shared HTML/JS panel; host-specific ExtendScript for PPRO and AEFT).
+- Panel: preset dropdown (read Media Converter's presets) + "Export & convert". Host renders an intermediate (PR: sequence.exportAsMediaDirect with a ProRes/DNxHR .epr; AE: render queue item + output module template), then hands the file to Media Converter.
+- Media Converter side: a command interface (CLI args / second-instance message: files + presetIds + output dir + start) — unit/e2e testable without Adobe.
+- Testing: AE 2023 supports `AfterFX.exe -r script.jsx` → automate the AE path here; PR 2019 has no CLI scripting → user tests the panel manually.
+- Install: package as a self-signed ZXP (ZXPSignCmd) instead of asking the user to enable PlayerDebugMode in the registry.
+- Until then the recommended workflow is a watch folder: export a ProRes/DNxHR master from PR/AE into it.
 
 ## 1. Rename / copy-only mode (no re-encode)
 Bulk file operations that never touch file contents (like a batch renamer).
