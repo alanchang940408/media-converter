@@ -61,7 +61,7 @@ export const zhTW: Record<keyof typeof en, string> = {
   'app.mockBadge': '瀏覽器展示',
   'app.mockBadgeHint': '目前在瀏覽器中以模擬資料執行，不會真的轉檔。',
   'nav.main': '主要導覽',
-  'nav.queue': '佇列',
+  'nav.queue': '轉檔',
   'nav.presets': '預設集',
   'nav.watch': '監看資料夾',
   'nav.settings': '設定',
