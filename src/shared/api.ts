@@ -67,7 +67,11 @@ export interface MediaApi {
   reorderJobs(ids: string[]): Promise<void>
   retryJobs(ids: string[]): Promise<void>
   clearFinished(): Promise<void>
-  startQueue(): Promise<void>
+  /**
+   * Start the queue. With `jobIds` only those queued jobs start (other queued jobs stay queued) and the run ends when
+   * they are through; a start without ids during such a run widens it to the whole queue.
+   */
+  startQueue(jobIds?: string[]): Promise<void>
   /** Stop starting new jobs and cancel running ones (they return to 'queued'). */
   stopQueue(): Promise<void>
   /** Cancel specific running/queued jobs (status → cancelled). */

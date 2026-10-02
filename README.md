@@ -264,7 +264,7 @@ For when you only want to tidy up file names, not convert anything. It renames o
 4. Pick the destination (copy and move only) and, if you like, turn on **Keep folder structure** so files from subfolders land in matching subfolders instead of all in one place.
 5. Type the new-name template (click a tag to insert it), then pick the **Numbering order** and the **If the file exists** option. Live examples show the result.
 6. Click **Preview**: a table lists every file's current name → new name; files that get a number added, overwrite something or are skipped are highlighted, and **Needs a look** shows only those. **Nothing has changed yet** — **Back** lets you adjust.
-7. Click **Run**. When it finishes, the notification and the queue toolbar offer **Undo**, which puts the files of the last rename or move back under their old names and locations.
+7. Click **Run**. Only the previewed files are processed; other jobs waiting in the queue stay there. When it finishes, the notification and the queue toolbar offer **Undo**, which puts the files of the last rename or move back under their old names and locations.
 
 **Numbering order** (what `{counter}` counts by)
 

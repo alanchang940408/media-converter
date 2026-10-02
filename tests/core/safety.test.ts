@@ -83,18 +83,51 @@ describe('file operations', () => {
     expect(readdirSync(src)).toHaveLength(2)
   })
 
-  it('the preview of new jobs accounts for queued file jobs ahead of them (a start runs those too)', async () => {
+  it('the preview of new jobs assumes only they run: a queued file job ahead of them neither claims a name nor frees one', async () => {
     const q = (h = makeHarness(tmp.dir))
     touch(join(src, 'x.txt'), 'X')
     touch(join(src, 'y.txt'), 'Y')
     const output = { dir: out, nameTemplate: 'same', conflict: 'rename' as const }
-    await addFiles(q, { paths: [join(src, 'x.txt')], output })
+    const [earlier] = await addFiles(q, { paths: [join(src, 'x.txt')], output })
     const [later] = await addFiles(q, { paths: [join(src, 'y.txt')], output })
     const preview = await q.queue.previewFileOps([later.id])
     expect(preview).toHaveLength(1)
+    expect(preview[0]).toMatchObject({ jobId: later.id, status: 'ok' })
+    expect(base(preview[0].target!)).toBe('same.txt')
+    q.queue.start(false, [later.id])
+    await waitFor(() => jobOf(q, later.id).status === 'done', 5000, 'chosen job')
+    expect(jobOf(q, later.id).outputPath).toBe(preview[0].target)
+    expect(jobOf(q, earlier.id).status).toBe('queued')
+    expect(read(join(out, 'same.txt'))).toBe('Y')
+    // a plain start later runs the waiting job too: it takes the next free name
+    q.queue.start()
+    await waitFor(() => settled(q), 5000, 'file jobs to settle')
+    expect(read(join(out, 'same (1).txt'))).toBe('X')
+  })
+
+  it('in a running queue, the preview accounts for file jobs of that run still waiting ahead of the new ones', async () => {
+    const q = (h = makeHarness(tmp.dir, {
+      fileConcurrency: 1,
+      fileOps: {
+        rename: async (from, to) => {
+          if (base(from) === 's.txt') await new Promise((r) => setTimeout(r, 600))
+          await nodeFileOps.rename(from, to)
+        },
+      },
+    }))
+    for (const n of ['s', 'x', 'y']) touch(join(src, `${n}.txt`), n.toUpperCase())
+    const output = { dir: out, nameTemplate: 'same', conflict: 'rename' as const }
+    const [slow] = await addFiles(q, { paths: [join(src, 's.txt')], filePresetId: 'file-rename', output: { nameTemplate: 'n_s' } })
+    const [earlier] = await addFiles(q, { paths: [join(src, 'x.txt')], output })
+    q.queue.start()
+    await waitFor(() => jobOf(q, slow.id).status === 'running', 2000, 'slow job running')
+    const [later] = await addFiles(q, { paths: [join(src, 'y.txt')], output })
+    const preview = await q.queue.previewFileOps([later.id])
+    // the earlier job is part of the running queue (only waiting for a free slot) → it gets "same.txt" first
+    expect(jobOf(q, earlier.id).status).toBe('queued')
     expect(preview[0]).toMatchObject({ jobId: later.id, status: 'renamed' })
     expect(base(preview[0].target!)).toBe('same (1).txt')
-    q.queue.start()
+    q.queue.start(false, [later.id])
     await waitFor(() => settled(q), 5000, 'file jobs to settle')
     expect(jobOf(q, later.id).outputPath).toBe(preview[0].target)
     expect(read(join(out, 'same.txt'))).toBe('X')

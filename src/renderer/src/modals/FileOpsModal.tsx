@@ -211,7 +211,8 @@ function FileOpsDialog() {
     setBusy('run')
     started.current = true
     const ids = createdIds.current
-    await startQueue()
+    // only the previewed jobs run: other queued work stays queued (and the preview stays exact)
+    await startQueue(ids)
     selectJobs(ids, ids[0] ?? null)
     toast('info', tNow('fileops.started', { n: ids.length }), tNow('fileops.startedHint'))
     closeFileOps()
@@ -691,6 +692,7 @@ function PreviewFooter({
 }) {
   const t = useT()
   const otherQueued = useStore((s) => {
+    if (s.running) return 0
     const mine = new Set(created.map((j) => j.id))
     return s.jobs.filter((j) => j.status === 'queued' && !mine.has(j.id)).length
   })
@@ -700,9 +702,7 @@ function PreviewFooter({
       <Button icon={ArrowLeft} onClick={onBack} disabled={busy != null} busy={busy === 'back'}>
         {t('common.back')}
       </Button>
-      <span className={cx('fo-foot-note', otherQueued > 0 && 'warn')}>
-        {otherQueued > 0 ? t('fileops.runAllQueued', { n: otherQueued }) : t('fileops.runStartsQueue')}
-      </span>
+      <span className="fo-foot-note">{otherQueued > 0 ? t('fileops.runOthersWait', { n: otherQueued }) : t('fileops.runOnlyThese')}</span>
       <span className="footer-spacer" />
       <Button variant="start" icon={Play} onClick={onRun} disabled={!actionable || busy != null} busy={busy === 'run'} title={!actionable ? t('fileops.nothingToRun') : undefined}>
         {t('fileops.run', { n: actionable })}

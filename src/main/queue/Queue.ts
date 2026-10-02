@@ -128,12 +128,17 @@ interface ActiveJob {
   reserved: string | null
   /** File jobs: claimed a move / rename to another path, i.e. this job's source is about to become free. */
   vacating: boolean
+  /** File jobs: position in claim order (set at the first claim, 0 before). A job only ever waits on lower ones. */
+  claimSeq: number
   settled: boolean
   done: Promise<void>
 }
 
 interface RunStats {
+  /** Jobs of this run (counted in the summary / taskbar). File jobs, and every job of a restricted run, must be in it to start. */
   ids: Set<string>
+  /** Started for chosen jobs only (startQueue(ids), e.g. a batch rename): other queued jobs do not start. */
+  restricted: boolean
   done: number
   failed: number
   cancelled: number
@@ -333,6 +338,8 @@ export class Queue {
   private staleCaseRenames: { tmp: string; source: string }[] = []
   /** File jobs claim their target strictly in start order (= queue order). */
   private claimChain: Promise<void> = Promise.resolve()
+  /** Last ActiveJob.claimSeq handed out. */
+  private claimCounter = 0
   /** pathKey(source) → jobs with that source; rebuilt lazily after structural changes. */
   private srcIndex: Map<string, Job[]> | null = null
   /** "pathKey|size|mtimeMs" → EXIF taken time (null = none). */
@@ -534,8 +541,11 @@ export class Queue {
     if (added.length) {
       this.jobs.push(...added)
       this.srcIndex = null
-      // file jobs only run after the user confirmed the preview (startQueue), even in a running queue
-      if (this.run && !fileMode) for (const j of added) this.run.ids.add(j.id)
+      // file jobs only run after the user confirmed the preview (startQueue), even in a running queue; a run limited to
+      // chosen jobs only takes new conversions that start on their own (autoStart, watch folders)
+      if (this.run && !fileMode && (!this.run.restricted || settings.autoStart || req.watchFolderId)) {
+        for (const j of added) this.run.ids.add(j.id)
+      }
       if (!req.watchFolderId) {
         const patch: Partial<typeof settings> = {}
         if (videoPreset && (videoPreset as VideoPreset).id !== settings.lastVideoPresetId) patch.lastVideoPresetId = (videoPreset as VideoPreset).id
@@ -656,7 +666,7 @@ export class Queue {
       copy.createdAt = Date.now()
       this.resetForQueue(copy)
       this.meta[copy.id] = { counter: this.meta[job.id]?.counter ?? 1 }
-      if (this.run && copy.kind !== 'file') this.run.ids.add(copy.id)
+      if (this.run && copy.kind !== 'file' && !this.run.restricted) this.run.ids.add(copy.id)
       next.push(copy)
       added++
     }
@@ -735,22 +745,31 @@ export class Queue {
   /**
    * Start (or continue) the queue. A user start includes every queued job; `auto` starts (autoStart setting,
    * watch folders, retries) leave file jobs alone — those always wait for an explicit start after the preview.
+   * With `only` (a batch rename's Run) just those queued jobs start: a restricted run that finishes when they are
+   * through. A plain start during a restricted run widens it to the whole queue; `only` during a run adds those jobs.
    */
-  start(auto = false): void {
+  start(auto = false, only?: readonly string[]): void {
+    const want = only ? new Set(only) : null
     if (this.running) {
-      if (!auto && this.run) for (const j of this.jobs) if (j.status === 'queued') this.run.ids.add(j.id)
+      if (!auto && this.run) {
+        if (!want) this.run.restricted = false
+        for (const j of this.jobs) if (j.status === 'queued' && (!want || want.has(j.id))) this.run.ids.add(j.id)
+      }
       this.pump()
       return
     }
     this.running = true
     this.run = {
-      ids: new Set(this.jobs.filter((j) => j.status === 'queued' && (!auto || j.kind !== 'file')).map((j) => j.id)),
+      ids: new Set(
+        this.jobs.filter((j) => j.status === 'queued' && (want ? want.has(j.id) : !auto || j.kind !== 'file')).map((j) => j.id),
+      ),
+      restricted: !!want,
       done: 0,
       failed: 0,
       cancelled: 0,
       skipped: 0,
     }
-    for (const id of this.active.keys()) this.run.ids.add(id)
+    for (const id of this.active.keys()) if (!want || want.has(id)) this.run.ids.add(id)
     this.emitSnapshot()
     this.pump()
   }
@@ -828,9 +847,9 @@ export class Queue {
 
   // ───────────────────────────── scheduling ─────────────────────────────
 
-  /** Queued and allowed to start now: file jobs need an explicit start (they are in the run). */
+  /** Queued and allowed to start now: file jobs need an explicit start (they are in the run), so does every job of a restricted run. */
   private isStartable(j: Job): boolean {
-    return j.status === 'queued' && (j.kind !== 'file' || !!this.run?.ids.has(j.id))
+    return j.status === 'queued' && ((j.kind === 'file' || this.run?.restricted) ? !!this.run?.ids.has(j.id) : true)
   }
 
   private pump(): void {
@@ -862,14 +881,14 @@ export class Queue {
       }
       for (const job of this.jobs) {
         if (video >= s.videoConcurrency && image >= s.imageConcurrency && file >= this.fileConcurrency) break
-        if (job.status !== 'queued') continue
+        if (!this.isStartable(job)) continue
         if (job.kind === 'video' && video < s.videoConcurrency) {
           video++
           this.startJob(job)
         } else if (job.kind === 'image' && image < s.imageConcurrency) {
           image++
           this.startJob(job)
-        } else if (job.kind === 'file' && file < this.fileConcurrency && this.run?.ids.has(job.id)) {
+        } else if (job.kind === 'file' && file < this.fileConcurrency) {
           file++
           this.startJob(job)
         }
@@ -922,6 +941,7 @@ export class Queue {
       reason: null,
       reserved: null,
       vacating: false,
+      claimSeq: 0,
       settled: false,
       done: Promise.resolve(),
     }
@@ -1216,6 +1236,7 @@ export class Queue {
   /** Resolve and reserve a file job's destination against the live state. Synchronous. */
   private claimFileTarget(job: Job, entry: ActiveJob, dir: string, baseName: string): FileTarget & { waitFor: ActiveJob[] } {
     const op = job.file!.operation
+    if (!entry.claimSeq) entry.claimSeq = ++this.claimCounter
     const vacatingByKey = new Map<string, ActiveJob[]>()
     const r = resolveFileTarget({
       dir,
@@ -1229,6 +1250,9 @@ export class Queue {
         const own = this.sourceOwnership(key, job)
         if (!own) return false
         if (own.state === 'taken') return true
+        // only ever wait on jobs that claimed before this one: a later one (met when picking a new name after waiting)
+        // may itself be waiting on this job, and the two would wait on each other forever → treat its source as taken
+        if (own.entries.some((a) => a.claimSeq > entry.claimSeq)) return true
         vacatingByKey.set(key, own.entries)
         return false
       },
@@ -1385,12 +1409,15 @@ export class Queue {
     }
   }
 
-  /** Dry run of the given queued file jobs in queue order — same rules as a real run, nothing is touched. */
+  /**
+   * Dry run of the given queued file jobs in queue order — same rules as a real run, nothing is touched. It assumes
+   * they are started with startQueue(jobIds): only they run, plus queued file jobs already part of a running queue
+   * (they may claim a name first); other queued jobs keep their sources. Only the requested ones are returned.
+   */
   async previewFileOps(jobIds: string[]): Promise<FileOpPreviewItem[]> {
     const wanted = new Set(Array.isArray(jobIds) ? jobIds : [])
-    // a start runs every queued file job in queue order, so the ones not asked about are simulated too (an earlier one
-    // may claim a name first); only the requested ones are returned
-    const list = this.jobs.filter((j) => j.kind === 'file' && j.status === 'queued')
+    const inRun = (j: Job): boolean => this.running && !!this.run?.ids.has(j.id)
+    const list = this.jobs.filter((j) => j.kind === 'file' && j.status === 'queued' && (wanted.has(j.id) || inRun(j)))
     const listed = new Set(list.map((j) => j.id))
     const now = new Date()
     const prepared = await mapLimit(list, 8, async (job) => {
@@ -1632,7 +1659,7 @@ export class Queue {
     this.resetForQueue(job)
     // a re-queued file job waits for the next explicit start (the user sees a fresh preview first)
     if (job.kind === 'file') this.run?.ids.delete(job.id)
-    else this.run?.ids.add(job.id)
+    else if (this.run && (!this.run.restricted || this.deps.settings.get().autoStart)) this.run.ids.add(job.id)
   }
 
   private resetForQueue(job: Job): void {

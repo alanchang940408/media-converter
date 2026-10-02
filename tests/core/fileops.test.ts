@@ -803,3 +803,150 @@ describe('undo', () => {
     expect(finished.at(-1)!.summary).toEqual({ done: 1, failed: 0, cancelled: 0, skipped: 0 })
   })
 })
+
+describe('runs limited to chosen jobs (the batch dialog Run = startQueue(ids))', () => {
+  const finishedEvents = (): Extract<QueueEvent, { type: 'finished' }>[] =>
+    h.events.filter((e): e is Extract<QueueEvent, { type: 'finished' }> => e.type === 'finished')
+
+  it('only the listed jobs start; other queued conversions and file jobs stay queued; the run finishes when they end', async () => {
+    h = makeHarness(tmp.dir)
+    touch(join(src, 'clip.mp4'))
+    touch(join(src, 'a.txt'), 'A')
+    touch(join(src, 'b.txt'), 'B')
+    const [video] = (await h.queue.addJobs({ paths: [join(src, 'clip.mp4')], output: { dir: out } })).jobs
+    const [other] = await addFiles({ paths: [join(src, 'a.txt')], output: { dir: out } })
+    const [mine] = await addFiles({ paths: [join(src, 'b.txt')], filePresetId: 'file-rename', output: { nameTemplate: 'n_{name}' } })
+    h.queue.start(false, [mine.id])
+    await waitFor(() => job(mine.id).status === 'done', 5000, 'chosen job')
+    await waitFor(() => !h.queue.isRunning(), 2000, 'restricted run end')
+    await sleep(50)
+    expect(job(video.id).status).toBe('queued')
+    expect(job(other.id).status).toBe('queued')
+    expect(h.ffmpeg.encodes).toHaveLength(0)
+    expect(existsSync(out)).toBe(false)
+    expect(names(src)).toEqual(['a.txt', 'clip.mp4', 'n_b.txt'])
+    expect(finishedEvents()).toHaveLength(1)
+    expect(finishedEvents()[0].summary).toEqual({ done: 1, failed: 0, cancelled: 0, skipped: 0 })
+    // the batch is one undo record of its own
+    expect(h.queue.getFileOpUndo()).toMatchObject({ count: 1 })
+  })
+
+  it('the preview of chosen jobs equals what their run does while other file jobs wait in the queue', async () => {
+    h = makeHarness(tmp.dir)
+    for (const n of ['x', 'w', 'y', 'v']) touch(join(src, `${n}.txt`), n.toUpperCase())
+    // queued first but not chosen: they would free x.txt and take out/same.txt; they do not run, so they do neither
+    const [other1] = await addFiles({ paths: [join(src, 'x.txt')], filePresetId: 'file-rename', output: { nameTemplate: 'z' } })
+    const [other2] = await addFiles({ paths: [join(src, 'w.txt')], output: { dir: out, nameTemplate: 'same', conflict: 'rename' } })
+    const [mine1] = await addFiles({ paths: [join(src, 'y.txt')], filePresetId: 'file-rename', output: { nameTemplate: 'x', conflict: 'rename' } })
+    const [mine2] = await addFiles({ paths: [join(src, 'v.txt')], output: { dir: out, nameTemplate: 'same', conflict: 'rename' } })
+    const ids = [mine1.id, mine2.id]
+    const preview = await h.queue.previewFileOps(ids)
+    expect(preview.map((i) => [i.status, base(i.target!)])).toEqual([
+      ['renamed', 'x (1).txt'],
+      ['ok', 'same.txt'],
+    ])
+    h.queue.start(false, ids)
+    await waitFor(() => ids.every((id) => job(id).status === 'done'), 5000, 'chosen jobs')
+    await waitFor(() => !h.queue.isRunning(), 2000, 'restricted run end')
+    expect(ids.map((id) => job(id).outputPath)).toEqual(preview.map((i) => i.target))
+    expect(job(other1.id).status).toBe('queued')
+    expect(job(other2.id).status).toBe('queued')
+    expect(read(join(src, 'x.txt'))).toBe('X')
+    expect(read(join(src, 'x (1).txt'))).toBe('Y')
+    expect(read(join(out, 'same.txt'))).toBe('V')
+  })
+
+  it('a plain start during a restricted run widens it to the whole queue (one run, one summary)', async () => {
+    h = makeHarness(tmp.dir, {
+      fileOps: {
+        rename: async (from, to) => {
+          if (base(from) === 'b.txt') await sleep(300)
+          await fsRename(from, to)
+        },
+      },
+    })
+    touch(join(src, 'clip.mp4'))
+    touch(join(src, 'a.txt'), 'A')
+    touch(join(src, 'b.txt'), 'B')
+    const [video] = (await h.queue.addJobs({ paths: [join(src, 'clip.mp4')], output: { dir: out } })).jobs
+    const [other] = await addFiles({ paths: [join(src, 'a.txt')], output: { dir: out } })
+    const [mine] = await addFiles({ paths: [join(src, 'b.txt')], filePresetId: 'file-rename', output: { nameTemplate: 'n_{name}' } })
+    h.queue.start(false, [mine.id])
+    await waitFor(() => job(mine.id).status === 'running', 2000, 'chosen job running')
+    await sleep(50)
+    expect(job(video.id).status).toBe('queued')
+    expect(job(other.id).status).toBe('queued')
+    h.queue.start()
+    await waitFor(allSettled, 8000, 'whole queue')
+    await waitFor(() => !h.queue.isRunning(), 2000, 'run end')
+    expect([video, other, mine].map((j) => job(j.id).status)).toEqual(['done', 'done', 'done'])
+    expect(finishedEvents()).toHaveLength(1)
+    expect(finishedEvents()[0].summary).toEqual({ done: 3, failed: 0, cancelled: 0, skipped: 0 })
+  })
+
+  it('stop ends a restricted run; the next plain start runs the whole queue', async () => {
+    h = makeHarness(tmp.dir, {
+      fileOps: {
+        rename: async (from, to) => {
+          if (base(from) === 'b.txt') await sleep(200)
+          await fsRename(from, to)
+        },
+      },
+    })
+    touch(join(src, 'a.txt'), 'A')
+    touch(join(src, 'b.txt'), 'B')
+    const [other] = await addFiles({ paths: [join(src, 'a.txt')], output: { dir: out } })
+    const [mine] = await addFiles({ paths: [join(src, 'b.txt')], filePresetId: 'file-rename', output: { nameTemplate: 'n_{name}' } })
+    h.queue.start(false, [mine.id])
+    await waitFor(() => job(mine.id).status === 'running', 2000, 'chosen job running')
+    await h.queue.stop()
+    expect(h.queue.isRunning()).toBe(false)
+    expect(job(other.id).status).toBe('queued')
+    await runAll()
+    expect(job(other.id).status).toBe('done')
+    expect(job(mine.id).status).toBe('done')
+  })
+})
+
+describe('file jobs never wait on each other in a cycle', () => {
+  it('a job that has to pick a new name after waiting does not wait on a job that claimed later', async () => {
+    // X renames T.txt away but fails; A wanted T.txt (waited for X) and must pick a new name. Its next candidate
+    // "T (1).txt" is the source of C, which claimed later and itself waits for A's source a.txt: A must not wait on C.
+    let failX!: () => void
+    const xGate = new Promise<void>((r) => (failX = r))
+    let xReached = false
+    h = makeHarness(tmp.dir, {
+      fileOps: {
+        rename: async (from, to) => {
+          if (base(from) === 'T.txt' && base(to) === 'x_out.txt') {
+            xReached = true
+            await xGate
+            throw new Error('locked by another program')
+          }
+          await fsRename(from, to)
+        },
+      },
+    })
+    touch(join(src, 'T.txt'), 'T')
+    touch(join(src, 'a.txt'), 'A')
+    touch(join(src, 'T (1).txt'), 'T1')
+    const [x] = await addFiles({ paths: [join(src, 'T.txt')], filePresetId: 'file-rename', output: { nameTemplate: 'x_out' } })
+    const [a] = await addFiles({ paths: [join(src, 'a.txt')], filePresetId: 'file-rename', output: { nameTemplate: 'T', conflict: 'rename' } })
+    const [c] = await addFiles({ paths: [join(src, 'T (1).txt')], filePresetId: 'file-rename', output: { nameTemplate: 'a', conflict: 'rename' } })
+    h.queue.start()
+    await waitFor(
+      () => xReached && base(job(a.id).outputPath ?? '') === 'T.txt' && base(job(c.id).outputPath ?? '') === 'a.txt',
+      3000,
+      'all three claimed',
+    )
+    failX()
+    await waitFor(allSettled, 3000, 'file jobs to settle (no deadlock)')
+    expect([x, a, c].map((j) => job(j.id).status)).toEqual(['failed', 'done', 'done'])
+    // nothing was overwritten: T.txt stays, A took the next really free name, C took a.txt once A had left it
+    expect(names(src)).toEqual(['T (2).txt', 'T.txt', 'a.txt'])
+    expect(read(join(src, 'T.txt'))).toBe('T')
+    expect(read(join(src, 'T (2).txt'))).toBe('A')
+    expect(read(join(src, 'a.txt'))).toBe('T1')
+    expect(job(a.id).outputPath).toBe(join(src, 'T (2).txt'))
+  })
+})

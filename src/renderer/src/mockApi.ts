@@ -627,6 +627,10 @@ export function createMockApi(): MediaApi {
   let counter = 0
   let pickCount = 0
   let runStats = { done: 0, failed: 0, cancelled: 0, skipped: 0 }
+  /** startQueue(ids): only these jobs run (null = the whole queue). */
+  let runOnly: Set<string> | null = null
+  /** Running, or queued and allowed to start in the current run. */
+  const pendingInRun = (j: Job): boolean => j.status === 'running' || (j.status === 'queued' && (!runOnly || runOnly.has(j.id)))
   let timer: ReturnType<typeof setInterval> | null = null
   let emptyVideoUrl: string | null = null
   /** Move/rename jobs finished in the current run (journal for undo). */
@@ -761,7 +765,7 @@ export function createMockApi(): MediaApi {
   /** Targets fixed when the queue starts, so numbering does not shift while jobs finish. */
   let plannedTargets = new Map<string, FileOpPreviewItem>()
   function planFileTargets(): void {
-    plannedTargets = fileTargets(jobs.filter((j) => j.kind === 'file' && j.status === 'queued'))
+    plannedTargets = fileTargets(jobs.filter((j) => j.kind === 'file' && j.status === 'queued' && (!runOnly || runOnly.has(j.id))))
   }
   function fileTargetFor(job: Job): FileOpPreviewItem | undefined {
     return plannedTargets.get(job.id) ?? fileTargets([job]).get(job.id)
@@ -870,7 +874,7 @@ export function createMockApi(): MediaApi {
     let freeV = Math.max(0, settings.videoConcurrency - runningVideo)
     let freeI = Math.max(0, settings.imageConcurrency - runningImage)
     for (const j of jobs) {
-      if (j.status !== 'queued') continue
+      if (j.status !== 'queued' || (runOnly && !runOnly.has(j.id))) continue
       if (j.kind === 'video' && freeV > 0) {
         startJob(j)
         freeV--
@@ -884,7 +888,10 @@ export function createMockApi(): MediaApi {
 
   /** The queue stops by itself once nothing is running or waiting (AME behaviour). */
   function stopIfIdle(): void {
-    if (running && !jobs.some((j) => j.status === 'running' || j.status === 'queued')) running = false
+    if (running && !jobs.some(pendingInRun)) {
+      running = false
+      runOnly = null
+    }
   }
 
   function tick(): void {
@@ -940,9 +947,10 @@ export function createMockApi(): MediaApi {
     if (structural) {
       if (settings.removeFinished) jobs = jobs.filter((j) => j.status !== 'done')
       schedule()
-      const active = jobs.some((j) => j.status === 'running' || j.status === 'queued')
+      const active = jobs.some(pendingInRun)
       if (!active) {
         running = false
+        runOnly = null
         if (runJournal.length) {
           undoJournal = runJournal.map(({ from, to }) => ({ from, to }))
           undoInfo = {
@@ -1294,6 +1302,7 @@ export function createMockApi(): MediaApi {
         added.push(job)
       }
       if (settings.autoStart && added.length) {
+        if (running && runOnly) for (const j of added) runOnly.add(j.id)
         running = true
         runStats = { done: 0, failed: 0, cancelled: 0, skipped: 0 }
         schedule()
@@ -1393,18 +1402,29 @@ export function createMockApi(): MediaApi {
       jobs = jobs.filter((j) => j.status !== 'done' && j.status !== 'skipped')
       emitSnapshot()
     },
-    async startQueue(): Promise<void> {
+    async startQueue(jobIds?: string[]): Promise<void> {
       await delay(40)
+      if (running) {
+        // a plain start widens a run limited to chosen jobs; ids during a run add those jobs
+        if (!jobIds) runOnly = null
+        else if (runOnly) for (const id of jobIds) runOnly.add(id)
+      } else {
+        runOnly = jobIds ? new Set(jobIds) : null
+        runStats = { done: 0, failed: 0, cancelled: 0, skipped: 0 }
+      }
       running = true
-      runStats = { done: 0, failed: 0, cancelled: 0, skipped: 0 }
       planFileTargets()
       schedule()
-      if (!jobs.some((j) => j.status === 'running' || j.status === 'queued')) running = false
+      if (!jobs.some(pendingInRun)) {
+        running = false
+        runOnly = null
+      }
       emitSnapshot()
     },
     async stopQueue(): Promise<void> {
       await delay(40)
       running = false
+      runOnly = null
       for (const j of jobs) {
         if (j.status === 'running') {
           j.status = 'queued'

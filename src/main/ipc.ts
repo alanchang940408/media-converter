@@ -200,7 +200,7 @@ export function createHandlers(ctx: IpcContext): Handlers {
     reorderJobs: async (ids) => queue.reorderJobs(ids),
     retryJobs: async (ids) => queue.retryJobs(ids),
     clearFinished: async () => queue.clearFinished(),
-    startQueue: async () => queue.start(),
+    startQueue: async (ids) => queue.start(false, Array.isArray(ids) ? ids.filter((id) => typeof id === 'string') : undefined),
     stopQueue: () => queue.stop(),
     cancelJobs: (ids) => queue.cancelJobs(ids),
 

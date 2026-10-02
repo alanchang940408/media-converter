@@ -390,8 +390,9 @@ export async function updateJob(id: string, patch: JobPatch): Promise<Job | unde
   return job
 }
 
-export async function startQueue(): Promise<void> {
-  await guard(() => api.startQueue())
+/** Start the queue; with `jobIds` only those queued jobs (see MediaApi.startQueue). */
+export async function startQueue(jobIds?: string[]): Promise<void> {
+  await guard(() => api.startQueue(jobIds))
   await refreshQueue()
 }
 
