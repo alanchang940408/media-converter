@@ -85,6 +85,8 @@ export interface AppState {
   selected: string[]
   anchor: string | null
   editorJobId: string | null
+  /** Jobs selected together with the edited one (multi-selection "Edit settings"); empty = single job. */
+  editorGroup: string[]
   previewJobId: string | null
   settingsTab: SettingsTab | null
   presetBrowserOpen: boolean
@@ -130,6 +132,7 @@ export const useStore = create<AppState>(() => ({
   selected: [],
   anchor: null,
   editorJobId: null,
+  editorGroup: [],
   previewJobId: null,
   settingsTab: null,
   presetBrowserOpen: readBool(LS_BROWSER, true),
@@ -333,10 +336,10 @@ export async function addFolderDialog(): Promise<void> {
   if (dir) await addPaths([dir], true)
 }
 
-export async function removeJobs(ids: string[]): Promise<void> {
+export async function removeJobs(ids: string[], confirmed = false): Promise<void> {
   if (!ids.length) return
   const running = get().jobs.filter((j) => ids.includes(j.id) && j.status === 'running')
-  if (running.length) {
+  if (running.length && !confirmed) {
     const ok = await confirmDialog({
       title: tNow('confirm.removeRunningTitle'),
       message: tNow('confirm.removeRunningBody', { n: running.length }),
@@ -347,6 +350,19 @@ export async function removeJobs(ids: string[]): Promise<void> {
   }
   await guard(() => api.removeJobs(ids))
   await refreshQueue()
+}
+
+/** Remove several jobs after one confirmation that states the count (and the running ones, if any). */
+export async function removeJobsConfirm(ids: string[]): Promise<void> {
+  if (ids.length < 2) return removeJobs(ids)
+  const running = get().jobs.filter((j) => ids.includes(j.id) && j.status === 'running').length
+  const ok = await confirmDialog({
+    title: tNow('confirm.removeManyTitle', { n: ids.length }),
+    message: tNow('confirm.removeManyBody') + (running ? '\n' + tNow('confirm.removeRunningBody', { n: running }) : ''),
+    confirmLabel: tNow('common.remove'),
+    danger: true,
+  })
+  if (ok) await removeJobs(ids, true)
 }
 
 export async function duplicateJobs(ids: string[]): Promise<void> {
@@ -548,8 +564,8 @@ export function closePreview(): void {
   set({ previewJobId: null })
 }
 
-export function openEditor(jobId: string): void {
-  set({ editorJobId: jobId, previewJobId: null })
+export function openEditor(jobId: string, group: string[] = []): void {
+  set({ editorJobId: jobId, editorGroup: group, previewJobId: null })
 }
 
 export function closeEditor(): void {

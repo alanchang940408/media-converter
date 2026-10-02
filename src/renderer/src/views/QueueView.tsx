@@ -48,6 +48,7 @@ import {
   openFileOps,
   openPreview,
   removeJobs,
+  removeJobsConfirm,
   reorderJobs,
   retryJobs,
   saveSettings,
@@ -395,6 +396,34 @@ function JobList() {
 
 // ───────────────────────────── row ─────────────────────────────
 
+/** Jobs a row action applies to: the whole selection when the row is part of a multi-selection, else just the row. */
+function rowTargets(job: Job): Job[] {
+  const st = useStore.getState()
+  if (st.selected.length < 2 || !st.selected.includes(job.id)) return [job]
+  const ids = new Set(st.selected)
+  return st.jobs.filter((j) => ids.has(j.id))
+}
+
+/** The row's preset dropdown: applies to every kind-compatible editable job of the row's selection. */
+async function applyPresetFromRow(job: Job, presetId: string, locale: Parameters<typeof presetName>[1]): Promise<void> {
+  const group = rowTargets(job)
+  const p = useStore.getState().presets.find((x) => x.id === presetId)
+  if (group.length < 2 || !p) {
+    await applyPreset([job.id], presetId)
+    return
+  }
+  const ids = group.filter((j) => isEditableJob(j) && isPresetCompatible(j, p)).map((j) => j.id)
+  const skipped = group.length - ids.length
+  if (await applyPreset(ids, presetId)) toast('success', tNow('browser.applied', { name: presetName(p, locale), n: ids.length }), skipped ? tNow('browser.skipped', { n: skipped }) : undefined)
+}
+
+/** Editable jobs of the row's selection that have an output folder setting (in-place renames don't). */
+function outputTargets(job: Job): string[] {
+  return rowTargets(job)
+    .filter((j) => isEditableJob(j) && !(j.kind === 'file' && jobOperation(j) === 'rename'))
+    .map((j) => j.id)
+}
+
 /** Double-click / Enter: edit when possible, otherwise preview (file jobs: show the file in its folder). */
 function openJob(job: Job): void {
   if (isEditableJob(job)) openEditor(job.id)
@@ -478,6 +507,8 @@ interface RowProps {
 
 function JobRow({ job, t, locale, presets, selected, expanded, fileTarget, dropMark, presetTarget, onToggleDetails, onClick, onDragStart, onDragOver, onDrop, onDragEnd }: RowProps) {
   const [outMenu, setOutMenu] = useState<HTMLElement | null>(null)
+  const selCount = useStore((s) => s.selected.length)
+  const groupHint = selected && selCount > 1 ? t('queue.appliesToSelection', { n: selCount }) : undefined
   const editable = isEditableJob(job)
   const isFile = job.kind === 'file'
   const op = jobOperation(job)
@@ -506,18 +537,23 @@ function JobRow({ job, t, locale, presets, selected, expanded, fileTarget, dropM
       disabled: !editable,
       onSelect: async () => {
         const dir = await guard(() => api.pickFolder(tNow('dialog.outputFolderTitle')))
-        if (dir) await setJobsOutputDir([job.id], dir)
+        if (dir) await setJobsOutputDir(outputTargets(job), dir)
       },
+      hint: groupHint,
     },
-    { key: 'same', label: t('common.sameAsSource'), checked: job.output.dir == null, disabled: !editable, onSelect: () => void setJobsOutputDir([job.id], null) },
+    { key: 'same', label: t('common.sameAsSource'), checked: job.output.dir == null, disabled: !editable, hint: groupHint, onSelect: () => void setJobsOutputDir(outputTargets(job), null) },
     {
       key: 'structure',
       label: t('fileops.keepStructure'),
       checked: !!job.output.preserveStructure,
       icon: job.output.preserveStructure ? undefined : FolderTree,
       disabled: !editable || !job.output.dir,
-      hint: job.relativeDir ? t('fileops.keepStructureRow', { dir: job.relativeDir }) : t('fileops.keepStructureHint'),
-      onSelect: () => void setJobsPreserveStructure([job.id], !job.output.preserveStructure),
+      hint: groupHint ?? (job.relativeDir ? t('fileops.keepStructureRow', { dir: job.relativeDir }) : t('fileops.keepStructureHint')),
+      onSelect: () => {
+        const ids = new Set(outputTargets(job))
+        const withDir = useStore.getState().jobs.filter((j) => ids.has(j.id) && j.output.dir).map((j) => j.id)
+        void setJobsPreserveStructure(withDir, !job.output.preserveStructure)
+      },
     },
     { type: 'separator', key: 'sep' },
     {
@@ -585,7 +621,7 @@ function JobRow({ job, t, locale, presets, selected, expanded, fileTarget, dropM
           <div className="preset-cell">
             <Select
               value={job.presetId}
-              onChange={(id) => void applyPreset([job.id], id)}
+              onChange={(id) => void applyPresetFromRow(job, id, locale)}
               disabled={!editable}
               aria-label={t('queue.colPreset')}
               title={job.presetName}
@@ -648,13 +684,25 @@ function JobRow({ job, t, locale, presets, selected, expanded, fileTarget, dropM
           ) : (
             <IconButton icon={Eye} label={t('job.preview')} onClick={() => openPreview(job.id)} />
           )}
-          <IconButton icon={SlidersHorizontal} label={editable ? t('job.edit') : t('job.notEditable')} disabled={!editable} onClick={() => openEditor(job.id)} />
+          <IconButton
+            icon={SlidersHorizontal}
+            label={editable ? t('job.edit') : t('job.notEditable')}
+            disabled={!editable}
+            onClick={() => openEditor(job.id, rowTargets(job).map((j) => j.id))}
+          />
           {job.status === 'running' || job.status === 'queued' ? (
-            <IconButton icon={Square} label={t('job.cancel')} size={13} disabled={job.status === 'queued'} onClick={() => void cancelJobs([job.id])} className={cx(job.status === 'queued' && 'invisible')} />
+            <IconButton
+              icon={Square}
+              label={t('job.cancel')}
+              size={13}
+              disabled={job.status === 'queued'}
+              onClick={() => void cancelJobs(rowTargets(job).filter((j) => j.status === 'running' || j.status === 'queued').map((j) => j.id))}
+              className={cx(job.status === 'queued' && 'invisible')}
+            />
           ) : (
-            <IconButton icon={RotateCcw} label={t('job.retry')} onClick={() => void retryJobs([job.id])} />
+            <IconButton icon={RotateCcw} label={t('job.retry')} onClick={() => void retryJobs(rowTargets(job).map((j) => j.id))} />
           )}
-          <IconButton icon={X} label={t('job.remove')} tone="danger" onClick={() => void removeJobs([job.id])} />
+          <IconButton icon={X} label={t('job.remove')} tone="danger" onClick={() => void removeJobsConfirm(rowTargets(job).map((j) => j.id))} />
         </div>
       </div>
       {expanded && <JobDetails job={job} t={t} />}

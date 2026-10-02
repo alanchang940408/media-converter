@@ -1,7 +1,7 @@
 // Edit one queued job's settings snapshot (video: encode settings + watermark + trim; image: action chain + output),
 // plus its output target. "Apply" patches the job; "Save as preset" stores a new user preset and links the job to it.
 import { useEffect, useMemo, useState } from 'react'
-import { ChevronDown, FolderOpen, FolderOutput, FolderTree, Info, Lock, Music, RotateCcw, Save, Scissors, SlidersHorizontal } from 'lucide-react'
+import { ChevronDown, FolderOpen, FolderOutput, FolderTree, Info, Layers, Lock, Music, RotateCcw, Save, Scissors, SlidersHorizontal } from 'lucide-react'
 import type {
   ConflictPolicy,
   FileOperation,
@@ -18,7 +18,7 @@ import { isAudioOnlyContainer, validateVideoSettings } from '../../../shared/vid
 import { renderNameTemplate } from '../../../shared/naming'
 import { baseNameOf, extOf } from '../../../shared/media'
 import { api } from '../api'
-import { closeEditor, confirmDialog, guard, promptDialog, savePreset, toast, tNow, updateJob, useLocale, useStore, useT } from '../store'
+import { closeEditor, confirmDialog, guard, promptDialog, refreshQueue, savePreset, toast, tNow, updateJob, useLocale, useStore, useT } from '../store'
 import type { MessageKey } from '../i18n'
 import { clone, isEditableJob, presetName } from '../lib/presets'
 import { clamp, dirName, fileName, formatTimecode, joinPath } from '../lib/format'
@@ -73,6 +73,14 @@ function JobEditor({ job }: { job: Job }) {
   const isVideo = job.kind === 'video' && !!draft.video
   const preset = presets.find((p) => p.id === job.presetId)
   const presetLabel = preset ? presetName(preset, locale) : job.presetName.replace(/\*$/, '')
+  // Multi-selection edit: the settings go to every selected non-running job of the same kind (audio vs video too).
+  const groupIds = useStore((s) => s.editorGroup)
+  const allJobs = useStore((s) => s.jobs)
+  const group = groupIds.length > 1 ? allJobs.filter((j) => groupIds.includes(j.id)) : []
+  const isAudio = job.sourceInfo?.kind === 'audio'
+  const groupTargets = group.filter((j) => j.kind === job.kind && isEditableJob(j) && (j.kind !== 'video' || (j.sourceInfo?.kind === 'audio') === isAudio))
+  const many = !locked && groupTargets.length > 1 && groupTargets.some((j) => j.id === job.id)
+  const groupSkipped = group.length - groupTargets.length
 
   const dirty = !same(draft, baseline)
   const issues = draft.video ? validateVideoSettings(draft.video) : []
@@ -119,8 +127,31 @@ function JobEditor({ job }: { job: Job }) {
     return patch
   }
 
+  /** What the other jobs of a multi-selection get: the clicked job's settings + output row, never its trim. */
+  const groupPatch = (): JobPatch => {
+    const patch: JobPatch = { presetId: job.presetId, output: { ...draft.output } }
+    if (isFile) patch.file = { operation: draft.operation }
+    else if (isVideo) patch.video = { settings: draft.video }
+    else if (draft.actions && draft.imgOutput) patch.image = { actions: draft.actions, output: draft.imgOutput }
+    return patch
+  }
+
   const apply = async (): Promise<void> => {
     setBusy('apply')
+    if (many) {
+      let ok = 0
+      for (const j of groupTargets) {
+        const patch = j.id === job.id ? buildPatch() : groupPatch()
+        if (await guard(() => api.updateJob(j.id, patch), 'toast.updateFailed')) ok++
+      }
+      await refreshQueue()
+      setBusy(null)
+      if (ok) {
+        toast('success', tNow('editor.appliedMany', { n: ok }), groupSkipped ? tNow('editor.groupSkipped', { n: groupSkipped }) : undefined)
+        closeEditor()
+      }
+      return
+    }
     const r = await updateJob(job.id, buildPatch())
     setBusy(null)
     if (r) {
@@ -190,8 +221,8 @@ function JobEditor({ job }: { job: Job }) {
             {t('editor.saveAsPreset')}
           </Button>
           <Button onClick={() => void requestClose()}>{t('common.cancel')}</Button>
-          <Button variant="primary" onClick={() => void apply()} disabled={!dirty || locked || hasErrors || busy != null} busy={busy === 'apply'}>
-            {t('editor.apply')}
+          <Button variant="primary" onClick={() => void apply()} disabled={(!dirty && !many) || locked || hasErrors || busy != null} busy={busy === 'apply'}>
+            {many ? t('editor.applyToMany', { n: groupTargets.length }) : t('editor.apply')}
           </Button>
         </>
       }
@@ -199,6 +230,12 @@ function JobEditor({ job }: { job: Job }) {
       {locked && (
         <div className="je-banner">
           <Lock size={14} aria-hidden /> {t('editor.locked')}
+        </div>
+      )}
+      {many && (
+        <div className="je-banner je-banner-group">
+          <Layers size={14} aria-hidden /> {t('editor.groupNote', { n: groupTargets.length })}
+          {groupSkipped > 0 && <> {t('editor.groupSkipped', { n: groupSkipped })}</>}
         </div>
       )}
       {isFile ? (
