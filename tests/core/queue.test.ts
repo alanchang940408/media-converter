@@ -226,6 +226,8 @@ describe('job execution', () => {
     const j = job(jobs[0].id)
     expect(j.status).toBe('failed')
     expect(j.error).toBe('Invalid data found when processing input')
+    expect(j.errorCode).toBe('sourceUnreadable')
+    expect(j.errorParams).toEqual({ name: 'a.mp4' })
     expect(j.logTail).toEqual(['line 1', 'line 2'])
     expect(j.outputPath).toBeUndefined()
     expect(readdirSync(out)).toEqual([])
@@ -240,6 +242,21 @@ describe('job execution', () => {
     h.queue.start()
     await waitFor(allSettled, 3000, 'job to fail')
     expect(job(jobs[0].id).error).toMatch(/Source file not found/)
+    expect(job(jobs[0].id).errorCode).toBe('sourceMissing')
+  })
+
+  it('classifies Node errors (disk full) and clears the code on retry', async () => {
+    h = makeHarness(tmp.dir)
+    h.ffmpeg.failWith = Object.assign(new Error("ENOSPC: no space left on device, write"), { code: 'ENOSPC', errno: -4055, syscall: 'write' })
+    touch(join(src, 'a.mp4'))
+    const { jobs } = await h.queue.addJobs({ paths: [join(src, 'a.mp4')], output: { dir: out } })
+    h.queue.start()
+    await waitFor(allSettled, 3000, 'job to fail')
+    expect(job(jobs[0].id)).toMatchObject({ status: 'failed', errorCode: 'diskFull', error: 'ENOSPC: no space left on device, write' })
+    h.ffmpeg.failWith = null
+    h.queue.retryJobs([jobs[0].id])
+    expect(job(jobs[0].id).errorCode).toBeUndefined()
+    expect(job(jobs[0].id).errorParams).toBeUndefined()
   })
 
   it('retry re-queues failed jobs and they can succeed', async () => {

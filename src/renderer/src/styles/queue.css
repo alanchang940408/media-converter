@@ -523,6 +523,20 @@
   min-width: 0;
 }
 
+.jd-hint {
+  margin-top: 4px;
+  color: var(--text);
+  font-size: var(--fs-sm);
+}
+
+.jd-raw {
+  margin-top: 4px;
+  color: var(--text-2);
+  font-size: var(--fs-xs);
+  overflow-wrap: anywhere;
+  user-select: text;
+}
+
 .jd-head .muted {
   white-space: nowrap;
   font-size: var(--fs-xs);

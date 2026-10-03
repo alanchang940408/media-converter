@@ -66,6 +66,7 @@ import type { MessageKey, TFunc } from '../i18n'
 import { formatBytes, formatEta, formatTimecode, fileName, sourceInfoLine, truncateMiddle, dirName, joinPath } from '../lib/format'
 import { FILE_OP_ICON, FILE_OP_LABEL, FILE_OP_STATUS_LABEL, jobOperation, recreatedSubfolder } from '../lib/fileops'
 import { useDebouncedValue } from '../lib/hooks'
+import { jobErrorText } from '../lib/jobError'
 import { groupByCategory, isEditableJob, isPresetCompatible, presetName } from '../lib/presets'
 import { DND_JOBS, DND_PRESET, dragState, hasType } from '../lib/dnd'
 import { PresetBrowser } from '../components/PresetBrowser'
@@ -756,7 +757,8 @@ function StatusCell({ job, t, expanded, onToggleDetails, fileTarget }: { job: Jo
           )}
         </div>
       )
-    case 'failed':
+    case 'failed': {
+      const e = jobErrorText(job, t)
       return (
         <div className="status status-failed">
           <div className="status-line">
@@ -767,11 +769,12 @@ function StatusCell({ job, t, expanded, onToggleDetails, fileTarget }: { job: Jo
               {t('job.details')}
             </button>
           </div>
-          <div className="status-error" title={job.error}>
-            {job.error ?? t('job.unknownError')}
+          <div className="status-error" title={[e.message, e.hint, e.raw].filter(Boolean).join('\n')}>
+            {e.summary}
           </div>
         </div>
       )
+    }
     case 'cancelled':
       return (
         <div className="status status-cancelled">
@@ -794,21 +797,22 @@ function StatusCell({ job, t, expanded, onToggleDetails, fileTarget }: { job: Jo
 
 function JobDetails({ job, t }: { job: Job; t: TFunc }) {
   const log = job.logTail?.join('\n') ?? ''
+  const e = jobErrorText(job, t)
   return (
     <div className="job-details" role="row">
       <div className="job-details-inner" role="gridcell">
         <div className="jd-head">
           <CircleAlert size={14} aria-hidden />
-          <strong>{job.error ?? t('job.unknownError')}</strong>
+          <strong title={e.message}>{e.message}</strong>
           <span className="tb-spacer" />
           {job.encoder && <span className="muted">{t('job.encoder')}: {job.encoder}</span>}
           <Button
             size="sm"
             icon={Copy}
-            disabled={!log}
+            disabled={!log && !e.raw}
             onClick={() =>
               void navigator.clipboard
-                .writeText(`${job.source}\n${job.error ?? ''}\n\n${log}`)
+                .writeText(`${job.source}\n${e.raw ? `${e.message}\n` : ''}${job.error ?? ''}\n\n${log}`)
                 .then(() => toast('success', tNow('common.copied')))
                 .catch(() => toast('error', tNow('toast.actionFailed')))
             }
@@ -816,6 +820,10 @@ function JobDetails({ job, t }: { job: Job; t: TFunc }) {
             {t('job.copyLog')}
           </Button>
         </div>
+        {e.hint && <div className="jd-hint">{e.hint}</div>}
+        {e.raw && e.raw !== e.message && (
+          <div className="jd-raw">{t('jobError.withDetail', { message: t('jobError.technical'), detail: e.raw })}</div>
+        )}
         {log ? <pre className="log">{log}</pre> : <div className="muted">{t('job.noLog')}</div>}
       </div>
     </div>

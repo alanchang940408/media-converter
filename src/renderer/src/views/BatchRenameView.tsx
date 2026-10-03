@@ -45,6 +45,7 @@ import {
 } from '../store'
 import type { MessageKey } from '../i18n'
 import { dirName, fileName, joinPath, truncateMiddle } from '../lib/format'
+import { jobErrorText } from '../lib/jobError'
 import { presetDescription, presetName } from '../lib/presets'
 import {
   DEFAULT_FILE_TEMPLATE,
@@ -783,7 +784,7 @@ function BatchRunPanel({ ids, undone }: { ids: string[]; undone: { restored: num
           // after a complete undo every renamed / moved file is back under its old name
           const restored = !!undone && !undone.failed && j.status === 'done'
           return (
-            <div key={j.id} role="listitem" className={cx('batch-run-row', `st-${j.status}`, restored && 'is-restored')} title={j.error ? `${j.source}\n${j.error}` : j.source}>
+            <div key={j.id} role="listitem" className={cx('batch-run-row', `st-${j.status}`, restored && 'is-restored')} title={j.error ? `${j.source}\n${[jobErrorText(j, t).message, j.errorCode ? j.error : ''].filter(Boolean).join('\n')}` : j.source}>
               <span className="batch-run-name">{fileName(j.source)}</span>
               <ArrowRight size={12} aria-hidden className="batch-run-arrow" />
               <span className="batch-run-target">{j.outputPath ? fileName(j.outputPath) : '…'}</span>

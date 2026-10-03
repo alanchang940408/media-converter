@@ -1026,6 +1026,8 @@ export function createMockApi(): MediaApi {
       return
     }
     job.error = undefined
+    job.errorCode = undefined
+    job.errorParams = undefined
     job.logTail = undefined
   }
 
@@ -1075,6 +1077,8 @@ export function createMockApi(): MediaApi {
       if (/corrupt/i.test(j.source) && j.progress >= 0.35) {
         j.status = 'failed'
         j.error = 'Invalid data found when processing input'
+        j.errorCode = j.kind === 'image' ? 'imageDecodeFailed' : 'sourceUnreadable'
+        j.errorParams = { name: j.source.split(/[\\/]/).pop() ?? j.source }
         j.logTail = corruptLog(j.source, j.encoder ?? 'libx264')
         j.finishedAt = Date.now()
         runStats.failed++
@@ -1084,6 +1088,8 @@ export function createMockApi(): MediaApi {
       if (j.kind === 'file' && /locked/i.test(j.source) && j.progress >= 0.5) {
         j.status = 'failed'
         j.error = 'EBUSY: resource busy or locked'
+        j.errorCode = 'permissionDenied'
+        j.errorParams = { name: j.source.split(/[\\/]/).pop() ?? j.source }
         j.finishedAt = Date.now()
         runStats.failed++
         structural = true
@@ -1143,7 +1149,7 @@ export function createMockApi(): MediaApi {
         outputPath: 'C:\\Users\\Demo\\Pictures\\京都旅行\\IMG_2041_Web JPEG 2048 px.jpg', finishedAt: now - 200_000,
       }, { width: 4032, height: 3024 }),
       makeJob('C:\\Users\\Demo\\Videos\\corrupted_clip.avi', 'builtin-h264-1080p', {
-        status: 'failed', progress: 0.37, encoder: 'h264_nvenc', error: 'Invalid data found when processing input',
+        status: 'failed', progress: 0.37, encoder: 'h264_nvenc', error: 'Invalid data found when processing input', errorCode: 'sourceUnreadable',
         logTail: corruptLog('C:\\Users\\Demo\\Videos\\corrupted_clip.avi', 'h264_nvenc'), finishedAt: now - 150_000,
       }, { width: 1280, height: 720, durationSec: 134, fps: 23.976, videoCodec: 'mpeg4' }),
       makeJob('D:\\Footage\\2026 春季發表會\\A001_C003_0412.mov', 'builtin-h264-1080p', {
@@ -1251,6 +1257,8 @@ export function createMockApi(): MediaApi {
       job.status = 'queued'
       job.progress = 0
       job.error = undefined
+      job.errorCode = undefined
+      job.errorParams = undefined
       job.logTail = undefined
       job.outputSizeBytes = undefined
       job.speed = undefined
@@ -1529,6 +1537,8 @@ export function createMockApi(): MediaApi {
           copy.status = 'queued'
           copy.progress = 0
           copy.error = undefined
+          copy.errorCode = undefined
+          copy.errorParams = undefined
           copy.logTail = undefined
           copy.outputPath = undefined
           copy.outputSizeBytes = undefined

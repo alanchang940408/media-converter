@@ -16,6 +16,7 @@ import type {
 import { api } from './api'
 import { LOCALE_HTML_LANG as LOCALE_TAGS, makeT, type MessageKey, type TFunc } from './i18n'
 import { fileName } from './lib/format'
+import { errorCodeMessage, friendlyRawError } from './lib/jobError'
 
 export type View = 'queue' | 'batch' | 'presets' | 'watch'
 export type SettingsTab = 'general' | 'output' | 'performance' | 'about'
@@ -197,7 +198,9 @@ export async function guard<T>(fn: () => Promise<T>, failKey: MessageKey = 'toas
     return await fn()
   } catch (err) {
     console.error(err)
-    toast('error', tNow(failKey), errorText(err))
+    const raw = errorText(err)
+    const friendly = friendlyRawError(raw, tNow)
+    toast('error', tNow(failKey), friendly ? `${friendly}\n${raw}` : raw)
     return undefined
   }
 }
@@ -546,7 +549,7 @@ export async function undoLastFileOp(): Promise<void> {
           tNow('fileop.undoPartial', { n: res.restored, failed }),
           res.failed
             .slice(0, 5)
-            .map((f) => `${fileName(f.path)}: ${f.error}`)
+            .map((f) => `${fileName(f.path)}: ${errorCodeMessage(f.errorCode, { name: fileName(f.path) }, tNow) ?? f.error}`)
             .join('\n') + (failed > 5 ? '\n…' : ''),
         )
     }

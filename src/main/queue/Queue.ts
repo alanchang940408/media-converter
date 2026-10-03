@@ -35,6 +35,7 @@ import type { JsonStore } from '../jsonStore'
 import { DEFAULT_FILE_PRESET_ID } from '../presets/builtin'
 import type { PresetLookup } from '../presets/store'
 import type { SettingsAccess } from '../settings'
+import { classify, jobError } from './errors'
 import {
   caseTempPath,
   copyData,
@@ -934,7 +935,7 @@ export class Queue {
     job.status = 'running'
     job.progress = 0
     job.startedAt = Date.now()
-    for (const k of ['error', 'logTail', 'outputPath', 'encoder', 'speed', 'fps', 'etaSec', 'elapsedSec', 'outputSizeBytes', 'finishedAt'] as const) {
+    for (const k of ['error', 'errorCode', 'errorParams', 'logTail', 'outputPath', 'encoder', 'speed', 'fps', 'etaSec', 'elapsedSec', 'outputSizeBytes', 'finishedAt'] as const) {
       delete job[k]
     }
     const entry: ActiveJob = {
@@ -1014,7 +1015,7 @@ export class Queue {
       const now = new Date()
       const settings = this.deps.settings.get()
       const st = await stat(job.source).catch(() => null)
-      if (!st?.isFile()) throw new Error(this.tr('error.sourceMissing', { path: job.source }))
+      if (!st?.isFile()) throw jobError(this.tr('error.sourceMissing', { path: job.source }), 'sourceMissing')
 
       let info = job.sourceInfo
       let size: OutputSize | null = null
@@ -1341,7 +1342,7 @@ export class Queue {
       let claimed: FileTarget & { waitFor: ActiveJob[] }
       try {
         const s = await stat(job.source).catch(() => null)
-        if (!s?.isFile()) throw new Error(this.tr('error.sourceMissing', { path: job.source }))
+        if (!s?.isFile()) throw jobError(this.tr('error.sourceMissing', { path: job.source }), 'sourceMissing')
         st = s
         const taken = await this.takenFor(job, st)
         baseName = renderNameTemplate(job.output.nameTemplate, this.namingVars(job, st, new Date(), taken))
@@ -1411,7 +1412,7 @@ export class Queue {
       tmp = null
       if (committed) this.settle(job, entry, { status: 'done' })
       else if (signal.aborted) this.settle(job, entry, { status: 'aborted' })
-      else this.settle(job, entry, { status: 'failed', error: err instanceof CopySizeError ? new Error(this.tr('error.copyIncomplete')) : err })
+      else this.settle(job, entry, { status: 'failed', error: err instanceof CopySizeError ? jobError(this.tr('error.copyIncomplete'), 'copyIncomplete') : err })
     }
   }
 
@@ -1575,7 +1576,7 @@ export class Queue {
         await relocate(this.fs, e.to, e.from, { tag })
         restored++
       } catch (err) {
-        failed.push({ path: e.to, error: errorMessage(err) })
+        failed.push({ path: e.to, error: errorMessage(err), errorCode: classify(err, { kind: 'file', source: e.to }).code })
       }
     }
     const journal = this.journal.get()
@@ -1611,6 +1612,11 @@ export class Queue {
       case 'failed':
         job.status = 'failed'
         job.error = errorMessage(outcome.error)
+        {
+          const { code, params } = classify(outcome.error, job)
+          job.errorCode = code
+          job.errorParams = params
+        }
         if (isEncodeErrorLike(outcome.error) && outcome.error.logTail.length) job.logTail = outcome.error.logTail.slice(-40)
         job.finishedAt = Date.now()
         delete job.outputPath
@@ -1673,6 +1679,8 @@ export class Queue {
     job.progress = 0
     for (const k of [
       'error',
+      'errorCode',
+      'errorParams',
       'logTail',
       'outputPath',
       'encoder',

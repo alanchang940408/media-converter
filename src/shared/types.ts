@@ -364,6 +364,26 @@ export interface OutputTarget {
 
 export type JobStatus = 'queued' | 'running' | 'done' | 'failed' | 'cancelled' | 'skipped'
 
+/** Why a job failed, in words the UI can explain (see main/queue/errors.ts). */
+export type JobErrorCode =
+  | 'sourceMissing'
+  | 'sourceUnreadable'
+  | 'noVideoStream'
+  | 'noAudioStream'
+  | 'diskFull'
+  | 'permissionDenied'
+  | 'outputPathInvalid'
+  | 'outputExists'
+  | 'encoderUnavailable'
+  | 'gpuEncoderFailed'
+  | 'invalidSettings'
+  | 'ffmpegMissing'
+  | 'imageDecodeFailed'
+  | 'watermarkMissing'
+  | 'outOfMemory'
+  | 'copyIncomplete'
+  | 'unknown'
+
 export interface Job {
   id: string
   /** 'file' = rename / copy / move without touching contents (any file type). */
@@ -398,8 +418,12 @@ export interface Job {
   elapsedSec?: number
   /** Encoder actually used, e.g. "h264_nvenc" or "libx264" or "sharp". */
   encoder?: string
-  /** Human readable error (first meaningful ffmpeg/sharp error line). */
+  /** Raw technical error (first meaningful ffmpeg/sharp/Node error line), shown in the details view. */
   error?: string
+  /** Kind of failure, for a localised message + hint in the UI (absent on jobs that failed before this existed). */
+  errorCode?: JobErrorCode
+  /** Values for the localised message, e.g. { name: 'clip.mp4' }. */
+  errorParams?: Record<string, string | number>
   /** Last ~40 log lines (ffmpeg stderr), for the details view. */
   logTail?: string[]
   outputSizeBytes?: number
@@ -498,7 +522,8 @@ export interface FileOpUndoInfo {
 
 export interface FileOpUndoResult {
   restored: number
-  failed: { path: string; error: string }[]
+  /** `error` is the raw message; `errorCode` its kind, for a localised message (see Job.errorCode). */
+  failed: { path: string; error: string; errorCode?: JobErrorCode }[]
 }
 
 // ───────────────────────────── Watch folders ─────────────────────────────
