@@ -172,7 +172,28 @@ node scripts/make-test-media.mjs  # 產生測試素材到 test-media/
 
 `npm run dist` 會在 `release/` 產生 `Media Converter-Setup-<版本>.exe`（安裝版）和 `Media Converter-Portable-<版本>.exe`（免安裝版），各約 152 MB（大部分是內建的 ffmpeg）。兩者都沒有程式碼簽章，第一次執行時 SmartScreen 會顯示「Windows 已保護您的電腦」，點「其他資訊」→「仍要執行」即可。
 
-發佈：推送 `v*` 標籤後，GitHub Actions（`.github/workflows/release.yml`）會在 Windows、macOS、Linux 上分別打包，並建立草稿 Release。
+### 更新與發佈
+
+**程式怎麼更新**（版本號顯示在視窗左上角程式名稱旁，以及「設定 → 關於」）
+
+- **安裝版（Windows）**：啟動約 10 秒後檢查一次，之後每 6 小時檢查 GitHub Releases。有新版就在背景下載，下載好後視窗上方會出現「新版 vX 已下載，重新啟動即可更新」，按「立即重新啟動」馬上更新；按「稍後」的話，下次關閉程式時會自動安裝。佇列還在轉檔時，重新啟動前會先詢問。
+- **免安裝版（Portable）**：不會自己更新，只會提醒「有新版 vX，免安裝版需手動下載」，按「前往下載」開啟 Release 頁面，下載新的 `.exe` 取代舊檔即可。macOS、Linux 版本同樣只提醒、不自動安裝。
+- 「設定 → 關於 → 更新」可以手動「檢查更新」，也可以關掉「自動檢查更新」。自動檢查失敗（沒有網路、GitHub 限制查詢次數、repo 還是私人的）時不會跳出任何訊息，只有手動檢查才會顯示。
+- 開發模式（`npm run dev`）不檢查更新。設定環境變數 `MC_NO_UPDATE_CHECK=1` 也可以關閉。
+
+**發佈新版本**（每次發佈都會自動升版號）
+
+```bash
+npm run release:patch    # 修正：0.1.0 → 0.1.1
+npm run release:minor    # 新功能：0.1.0 → 0.2.0
+node scripts/release.mjs patch --dry-run   # 只檢查、不做任何變更
+```
+
+`scripts/release.mjs` 會確認工作目錄是乾淨的、分支沒有落後遠端，然後執行 `npm version`（更新 `package.json` 與 `package-lock.json`、建立 commit「vX.Y.Z」和標籤 `vX.Y.Z`），再 `git push --follow-tags`。
+
+推送 `v*` 標籤後，GitHub Actions（`.github/workflows/release.yml`）會：確認標籤和 `package.json` 版本一致 → 建立草稿 Release → 在 Windows、macOS、Linux 上分別打包，並用 `electron-builder --publish always` 把安裝版、免安裝版、`latest.yml` 和 `.blockmap` 上傳到草稿 → 全部成功後才把草稿發佈成最新版（已安裝的程式從這時起才會看到更新）。任何一個平台失敗時草稿會留著，可以在 GitHub 上檢查後手動發佈或刪除。electron-builder 上傳時會把檔名裡的空白換成 `-`（例如 `Media-Converter-Setup-0.1.1.exe`）。
+
+> repo 目前是私人的，安裝版在 repo 公開之前檢查更新會得到 404（不會顯示錯誤）。公開後即可正常更新。
 
 ### 專案結構
 
@@ -358,7 +379,28 @@ More `fetch-ffmpeg` options: `--platform win32|darwin|linux`, `--arch x64,arm64`
 
 `npm run dist` writes `Media Converter-Setup-<version>.exe` (installer) and `Media Converter-Portable-<version>.exe` (portable) to `release/`, about 152 MB each (mostly the bundled ffmpeg). Neither is code-signed, so on first launch SmartScreen shows "Windows protected your PC": click **More info → Run anyway**.
 
-Releases: pushing a `v*` tag runs `.github/workflows/release.yml`, which builds on Windows, macOS and Linux and creates a draft GitHub release.
+### Updates & releases
+
+**How the app updates** (the version number is shown next to the app name in the header and in Settings → About)
+
+- **Installed version (Windows)**: checks GitHub Releases about 10 seconds after start and then every 6 hours. A new version downloads in the background; when it is ready a bar under the header says "New version vX has been downloaded. Restart to update." **Restart now** installs it right away; **Later** installs it the next time you quit. If the queue is still encoding you are asked first.
+- **Portable version**: never updates itself. It shows "New version vX is available. The portable version must be downloaded manually." with **Go to download**, which opens the release page; replace the old `.exe` with the new one. macOS and Linux builds also only remind you.
+- Settings → About → Updates has **Check for updates** and the **Check for updates automatically** switch. Automatic checks fail silently (offline, GitHub rate limit, repository still private); only a manual check shows a message.
+- Development runs (`npm run dev`) never check. `MC_NO_UPDATE_CHECK=1` turns checks off in a packaged build too.
+
+**Cutting a release** (every release bumps the version)
+
+```bash
+npm run release:patch    # fixes:        0.1.0 → 0.1.1
+npm run release:minor    # new features: 0.1.0 → 0.2.0
+node scripts/release.mjs patch --dry-run   # checks only, changes nothing
+```
+
+`scripts/release.mjs` checks that the working tree is clean and the branch is not behind its upstream, runs `npm version` (bumps `package.json` + `package-lock.json`, commits "vX.Y.Z", tags `vX.Y.Z`) and then `git push --follow-tags`.
+
+The pushed `v*` tag runs `.github/workflows/release.yml`: it checks that the tag matches `package.json`, creates a draft release, builds on Windows, macOS and Linux with `electron-builder --publish always` (uploading the installer, portable exe, `latest.yml` and `.blockmap` files into the draft), and publishes the draft as the latest release only when every build succeeded — installed apps see the update from that moment. If a platform fails, the draft stays for you to inspect and publish or delete by hand. electron-builder uploads the files with `-` instead of spaces in their names (e.g. `Media-Converter-Setup-0.1.1.exe`).
+
+> While the repository is private, update checks get a 404 (silently). They work once it is public.
 
 ### Project structure
 

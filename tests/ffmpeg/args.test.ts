@@ -33,6 +33,7 @@ describe('outputExtension', () => {
   it('maps every container', () => {
     const map: Record<OutputContainer, string> = {
       mp4: 'mp4', mov: 'mov', mkv: 'mkv', webm: 'webm', gif: 'gif', mp3: 'mp3', m4a: 'm4a', wav: 'wav', flac: 'flac', ogg: 'ogg',
+      mpg: 'mpg', wmv: 'wmv', avi: 'avi',
     }
     for (const [c, ext] of Object.entries(map)) expect(outputExtension(preset({ container: c as OutputContainer }))).toBe(ext)
   })
@@ -94,6 +95,12 @@ describe('encoder resolution', () => {
     vp9: { none: 'libvpx-vp9', auto: 'libvpx-vp9', nvenc: 'libvpx-vp9', qsv: 'libvpx-vp9', amf: 'libvpx-vp9', videotoolbox: 'libvpx-vp9' },
     prores: { none: 'prores_ks', auto: 'prores_videotoolbox', nvenc: 'prores_ks', qsv: 'prores_ks', amf: 'prores_ks', videotoolbox: 'prores_videotoolbox' },
     dnxhr: { none: 'dnxhd', auto: 'dnxhd', nvenc: 'dnxhd', qsv: 'dnxhd', amf: 'dnxhd', videotoolbox: 'dnxhd' },
+    // legacy codecs are software only: every hw choice silently uses the CPU encoder
+    mpeg2: { none: 'mpeg2video', auto: 'mpeg2video', nvenc: 'mpeg2video', qsv: 'mpeg2video', amf: 'mpeg2video', videotoolbox: 'mpeg2video' },
+    mpeg1: { none: 'mpeg1video', auto: 'mpeg1video', nvenc: 'mpeg1video', qsv: 'mpeg1video', amf: 'mpeg1video', videotoolbox: 'mpeg1video' },
+    mpeg4: { none: 'mpeg4', auto: 'mpeg4', nvenc: 'mpeg4', qsv: 'mpeg4', amf: 'mpeg4', videotoolbox: 'mpeg4' },
+    wmv2: { none: 'wmv2', auto: 'wmv2', nvenc: 'wmv2', qsv: 'wmv2', amf: 'wmv2', videotoolbox: 'wmv2' },
+    mjpeg: { none: 'mjpeg', auto: 'mjpeg', nvenc: 'mjpeg', qsv: 'mjpeg', amf: 'mjpeg', videotoolbox: 'mjpeg' },
     gif: { none: 'gif', auto: 'gif', nvenc: 'gif', qsv: 'gif', amf: 'gif', videotoolbox: 'gif' },
     copy: { none: 'copy', auto: 'copy', nvenc: 'copy', qsv: 'copy', amf: 'copy', videotoolbox: 'copy' },
     none: { none: 'none', auto: 'none', nvenc: 'none', qsv: 'none', amf: 'none', videotoolbox: 'none' },
@@ -145,8 +152,11 @@ describe('encoder resolution', () => {
   })
 
   it('buildArgs for every codec × hw choice × caps (all working / none working)', () => {
-    const containerFor: Record<string, OutputContainer> = { h264: 'mp4', hevc: 'mp4', av1: 'mkv', vp9: 'webm', prores: 'mov', dnxhr: 'mov', gif: 'gif', copy: 'mkv' }
-    const audioFor: Record<string, VideoPresetSettings['audio']['codec']> = { webm: 'opus', mov: 'pcm', gif: 'none' }
+    const containerFor: Record<string, OutputContainer> = {
+      h264: 'mp4', hevc: 'mp4', av1: 'mkv', vp9: 'webm', prores: 'mov', dnxhr: 'mov', gif: 'gif', copy: 'mkv',
+      mpeg2: 'mpg', mpeg1: 'mpg', mpeg4: 'avi', wmv2: 'wmv', mjpeg: 'avi',
+    }
+    const audioFor: Record<string, VideoPresetSettings['audio']['codec']> = { webm: 'opus', mov: 'pcm', gif: 'none', mpg: 'mp2', wmv: 'wmav2', avi: 'mp3' }
     const noneWorking = fakeCaps([], [...ALL_HW, 'libx264', 'libx265', 'libsvtav1'])
     for (const [codec, byHw] of Object.entries(expected)) {
       if (codec === 'none') continue

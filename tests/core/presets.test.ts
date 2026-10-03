@@ -12,6 +12,7 @@ const VIDEO_IDS = [
   'h264-proxy-720p', 'hevc-match', 'hevc-4k-10bit', 'av1-match', 'webm-vp9-1080p', 'prores-422', 'prores-422-hq',
   'prores-422-proxy', 'prores-4444', 'dnxhr-hq', 'remux-mp4', 'gif-480', 'gif-720-hq', 'audio-mp3-320', 'audio-mp3-192',
   'audio-aac-256', 'audio-wav', 'audio-flac',
+  'mpeg2-dvd-ntsc', 'mpeg2-dvd-pal', 'mpeg2-1080p', 'wmv-720p', 'avi-xvid-720p', 'avi-mjpeg',
 ]
 const IMAGE_IDS = [
   'img-jpeg-q90', 'img-web-2048-webp', 'img-png', 'img-avif', 'img-thumb-512', 'img-square-1080', 'img-portrait-1080x1350',

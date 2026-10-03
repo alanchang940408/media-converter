@@ -1,7 +1,7 @@
 // In-memory MediaApi for `npm run dev:web` (plain browser, no Electron).
 // Simulates presets, a running queue with progress, watch folders, capabilities and
 // generated SVG imagery so every screen can be demoed without the main process.
-import type { MediaApi } from '../../shared/api'
+import type { MediaApi, UpdateEvent, UpdateState } from '../../shared/api'
 import type {
   AddJobsRequest,
   AddJobsResult,
@@ -574,6 +574,7 @@ function defaultSettings(): AppSettings {
     preventSleep: true,
     removeFinished: false,
     ffmpegPath: null,
+    autoCheckUpdates: true,
   }
 }
 
@@ -592,6 +593,57 @@ function navigatorLocale(): Locale {
   if (lang.startsWith('ja')) return 'ja'
   if (lang.startsWith('en')) return 'en'
   return 'zh-TW'
+}
+
+// ───────────────────────────── updates ─────────────────────────────
+
+/**
+ * Update methods of the mock. Default: installed build, "Check for updates" finds nothing.
+ * Demo the bars with ?update=downloaded (installed build, update ready) or ?update=portable (portable, new version out).
+ */
+function mockUpdates(): Pick<MediaApi, 'getUpdateState' | 'checkForUpdates' | 'installUpdateNow' | 'openReleasePage' | 'onUpdateEvent'> {
+  const demo = typeof location !== 'undefined' ? new URLSearchParams(location.search).get('update') : null
+  const releaseUrl = 'https://github.com/alan940408/media-converter/releases/latest'
+  let state: UpdateState =
+    demo === 'downloaded'
+      ? { mode: 'auto', status: 'downloaded', currentVersion: '0.1.0', version: '0.2.0', percent: 100, lastCheckedAt: Date.now() }
+      : demo === 'portable'
+        ? { mode: 'portable', status: 'available', currentVersion: '0.1.0', version: '0.2.0', url: releaseUrl, lastCheckedAt: Date.now() }
+        : { mode: 'auto', status: 'idle', currentVersion: '0.1.0' }
+  const listeners = new Set<(e: UpdateEvent) => void>()
+  const emit = (e: UpdateEvent): void => listeners.forEach((cb) => cb(e))
+  return {
+    async getUpdateState(): Promise<UpdateState> {
+      return clone(state)
+    },
+    async checkForUpdates(): Promise<UpdateState> {
+      if (state.status === 'downloaded' || state.status === 'downloading') return clone(state)
+      state = { ...state, status: 'checking' }
+      emit({ type: 'checking', state: clone(state) })
+      await delay(900)
+      if (state.mode === 'portable') {
+        state = { ...state, status: 'available', lastCheckedAt: Date.now() }
+        emit({ type: 'available', version: state.version ?? '0.2.0', portable: true, url: state.url, state: clone(state) })
+      } else {
+        state = { ...state, status: 'not-available', lastCheckedAt: Date.now() }
+        emit({ type: 'not-available', state: clone(state) })
+      }
+      return clone(state)
+    },
+    async installUpdateNow(): Promise<void> {
+      await delay(200)
+      window.location.reload()
+    },
+    async openReleasePage(): Promise<void> {
+      window.open(state.url ?? releaseUrl, '_blank', 'noopener')
+    },
+    onUpdateEvent(cb: (e: UpdateEvent) => void): () => void {
+      listeners.add(cb)
+      return () => {
+        listeners.delete(cb)
+      }
+    },
+  }
 }
 
 // ───────────────────────────── the mock ─────────────────────────────
@@ -787,7 +839,7 @@ export function createMockApi(): MediaApi {
     if (job.kind === 'image') return 'sharp'
     const s = job.video!.settings
     const c = s.video.codec
-    if (c === 'none') return ({ mp3: 'libmp3lame', aac: 'aac', pcm: 'pcm_s16le', flac: 'flac', opus: 'libopus', copy: 'copy', none: 'none' } as const)[s.audio.codec]
+    if (c === 'none') return ({ mp3: 'libmp3lame', aac: 'aac', pcm: 'pcm_s16le', flac: 'flac', opus: 'libopus', mp2: 'mp2', ac3: 'ac3', wmav2: 'wmav2', copy: 'copy', none: 'none' } as const)[s.audio.codec]
     const hw = s.video.hw === 'auto' ? settings.preferredHw : s.video.hw
     if ((hw === 'auto' || hw === 'nvenc') && ['h264', 'hevc', 'av1'].includes(c)) return `${c}_nvenc`
     if (hw === 'qsv' && ['h264', 'hevc', 'av1'].includes(c)) return `${c}_qsv`
@@ -1557,6 +1609,8 @@ export function createMockApi(): MediaApi {
     onExternalFiles(): () => void {
       return () => {}
     },
+
+    ...mockUpdates(),
   }
   return api
 }

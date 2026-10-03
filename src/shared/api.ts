@@ -107,14 +107,65 @@ export interface MediaApi {
 
   /** Files opened via OS (argv / second instance / "Open with"). Returns unsubscribe. */
   onExternalFiles(cb: (paths: string[]) => void): () => void
+
+  // ── updates (GitHub Releases) ──
+  getUpdateState(): Promise<UpdateState>
+  /** Check now, also when automatic checks are off. Never rejects for network / GitHub errors: the result has status 'error'. */
+  checkForUpdates(): Promise<UpdateState>
+  /** Quit and install the downloaded update (installed build, status 'downloaded'). Asks first when the queue is busy. */
+  installUpdateNow(): Promise<void>
+  /** Open the GitHub release page of the newer version (or the latest release) in the browser. */
+  openReleasePage(): Promise<void>
+  /** Subscribe to update events. Returns an unsubscribe function. */
+  onUpdateEvent(cb: (e: UpdateEvent) => void): () => void
 }
+
+/**
+ * How this build gets updates:
+ * - 'auto': installed Windows build (NSIS); electron-updater downloads in the background, installs on quit or "Restart now"
+ * - 'portable': portable exe; only a reminder with a link to the release page
+ * - 'manual': other packaged platforms (unsigned macOS, Linux); same as portable
+ * - 'disabled': development / unpackaged run
+ */
+export type UpdateMode = 'auto' | 'portable' | 'manual' | 'disabled'
+export type UpdateStatus = 'idle' | 'disabled' | 'checking' | 'available' | 'not-available' | 'downloading' | 'downloaded' | 'error'
+/** 'not-found': no published release yet, or the repository is private (404/401). */
+export type UpdateErrorKind = 'network' | 'not-found' | 'rate-limit' | 'other'
+
+export interface UpdateState {
+  mode: UpdateMode
+  status: UpdateStatus
+  /** Running version (app.getVersion()). */
+  currentVersion: string
+  /** The newer version, without a leading "v" (available / downloading / downloaded). */
+  version?: string
+  /** Download progress 0..100 ('downloading'). */
+  percent?: number
+  /** Release page of the newer version ('portable' / 'manual' modes). */
+  url?: string
+  /** Why the last check failed (status 'error'). Automatic checks never show it as a toast. */
+  error?: { kind: UpdateErrorKind; message: string }
+  /** Epoch ms of the last finished check. */
+  lastCheckedAt?: number
+}
+
+/** Pushed main → renderer; `state` is the full state after the event. */
+export type UpdateEvent =
+  | { type: 'checking'; state: UpdateState }
+  /** `portable`: this build cannot install it itself — download it from `url` (portable exe, or 'manual' mode). */
+  | { type: 'available'; version: string; portable: boolean; url?: string; state: UpdateState }
+  | { type: 'not-available'; state: UpdateState }
+  | { type: 'downloading'; percent: number; state: UpdateState }
+  | { type: 'downloaded'; version: string; state: UpdateState }
+  | { type: 'error'; message: string; state: UpdateState }
 
 /** IPC channel names (main ↔ preload). */
 export const IPC = {
   invoke: 'mc:invoke',
   queueEvent: 'mc:queue-event',
   externalFiles: 'mc:external-files',
+  updateEvent: 'mc:update-event',
 } as const
 
 /** Methods of MediaApi that go through ipcRenderer.invoke(IPC.invoke, method, ...args). */
-export type InvokeMethod = Exclude<keyof MediaApi, 'getPathForFile' | 'mediaUrl' | 'onQueueEvent' | 'onExternalFiles'>
+export type InvokeMethod = Exclude<keyof MediaApi, 'getPathForFile' | 'mediaUrl' | 'onQueueEvent' | 'onExternalFiles' | 'onUpdateEvent'>

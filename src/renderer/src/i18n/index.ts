@@ -7,17 +7,19 @@ import { ja } from './ja'
 import { extraEn, extraJa, extraZhTW } from './extra'
 import { fileopsEn, fileopsJa, fileopsZhTW } from './fileops'
 import { uxEn, uxJa, uxZhTW } from './ux'
+import { updateEn, updateJa, updateZhTW } from './update'
+import { formatsEn, formatsJa, formatsZhTW } from './formats'
 
-export type MessageKey = keyof typeof en | keyof typeof extraEn | keyof typeof fileopsEn | keyof typeof uxEn
+export type MessageKey = keyof typeof en | keyof typeof extraEn | keyof typeof fileopsEn | keyof typeof uxEn | keyof typeof updateEn | keyof typeof formatsEn
 export type MessageParams = Record<string, string | number>
 export type TFunc = (key: MessageKey, params?: MessageParams) => string
 
 export type Dictionary = Record<MessageKey, string>
 
 const DICTS: Record<Locale, Dictionary> = {
-  en: { ...en, ...extraEn, ...fileopsEn, ...uxEn },
-  'zh-TW': { ...zhTW, ...extraZhTW, ...fileopsZhTW, ...uxZhTW },
-  ja: { ...ja, ...extraJa, ...fileopsJa, ...uxJa },
+  en: { ...en, ...extraEn, ...fileopsEn, ...uxEn, ...updateEn, ...formatsEn },
+  'zh-TW': { ...zhTW, ...extraZhTW, ...fileopsZhTW, ...uxZhTW, ...updateZhTW, ...formatsZhTW },
+  ja: { ...ja, ...extraJa, ...fileopsJa, ...uxJa, ...updateJa, ...formatsJa },
 }
 
 export const LOCALES: readonly Locale[] = ['zh-TW', 'en', 'ja']

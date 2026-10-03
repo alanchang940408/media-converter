@@ -14,12 +14,16 @@ import type {
 } from '../../../shared/types'
 import {
   DNXHR_PROFILES,
+  DVD_STANDARDS,
   H264_PROFILES,
   HW_CODECS,
+  LEGACY_VIDEO_CONTAINERS,
+  MPEG2_PROFILES,
   PRORES_PROFILES,
   allowedAudioCodecs,
   allowedVideoCodecs,
   defaultCodecsFor,
+  dvdStandard,
   isAudioOnlyContainer,
   validateVideoSettings,
 } from '../../../shared/videoRules'
@@ -35,22 +39,32 @@ type A = VideoPresetSettings['audio']
 
 const VIDEO_CONTAINERS: OutputContainer[] = ['mp4', 'mov', 'mkv', 'webm', 'gif']
 const AUDIO_CONTAINERS: OutputContainer[] = ['mp3', 'm4a', 'wav', 'flac', 'ogg']
-const RATE_CODECS: VideoCodecId[] = ['h264', 'hevc', 'av1', 'vp9']
+const RATE_CODECS: VideoCodecId[] = ['h264', 'hevc', 'av1', 'vp9', 'mpeg2', 'mpeg1', 'mpeg4', 'wmv2', 'mjpeg']
+/** Codecs whose encoders have a speed/quality trade-off (MJPEG has none). */
+const SPEED_CODECS: VideoCodecId[] = ['h264', 'hevc', 'av1', 'vp9', 'mpeg2', 'mpeg1', 'mpeg4', 'wmv2']
 const TEN_BIT_CODECS: VideoCodecId[] = ['hevc', 'av1', 'vp9']
 const HW_FAMILIES = ['nvenc', 'qsv', 'amf', 'videotoolbox'] as const
 const RESOLUTIONS = ['3840x2160', '2560x1440', '1920x1080', '1280x720', '854x480', '1080x1920', '1080x1080', '1080x1350'] as const
 const FPS_OPTIONS = [23.976, 24, 25, 29.97, 30, 50, 59.94, 60]
 const AUDIO_BITRATES = [64, 96, 128, 160, 192, 256, 320]
+/** Bitrates the encoders accept (MP2: MPEG-1 Layer II table, AC-3 up to 640 kbps). */
+const AUDIO_BITRATES_BY_CODEC: Partial<Record<A['codec'], number[]>> = {
+  mp2: [64, 96, 128, 160, 192, 224, 256, 320, 384],
+  ac3: [96, 128, 160, 192, 224, 256, 320, 384, 448, 640],
+}
+const LOSSY_AUDIO: A['codec'][] = ['aac', 'mp3', 'opus', 'mp2', 'ac3', 'wmav2']
 const SAMPLE_RATES = [22050, 44100, 48000, 96000]
 const CRF_MIN = 14
 const CRF_MAX = 35
 const clampCrf = (n: number): number => Math.min(CRF_MAX, Math.max(CRF_MIN, n))
 const DEFAULT_GIF: GifSettings = { fps: 12, width: 480, colors: 256, dither: 'sierra2_4a', loop: 0 }
 
-function fixProfile(codec: VideoCodecId, profile: string | null | undefined): string | null {
+function fixProfile(codec: VideoCodecId, profile: string | null | undefined, container?: OutputContainer): string | null {
   if (codec === 'prores') return profile && (PRORES_PROFILES as readonly string[]).includes(profile) ? profile : 'hq'
   if (codec === 'dnxhr') return profile && (DNXHR_PROFILES as readonly string[]).includes(profile) ? profile : 'hq'
   if (codec === 'h264') return profile && (H264_PROFILES as readonly string[]).includes(profile) ? profile : null
+  // DVD profiles only exist in MPG
+  if (codec === 'mpeg2') return profile && container === 'mpg' && (MPEG2_PROFILES as readonly string[]).includes(profile) ? profile : null
   return null
 }
 
@@ -80,14 +94,27 @@ export function VideoSettingsForm({
     const d = defaultCodecsFor(c)
     const codec = allowedVideoCodecs(c).includes(v.codec) ? v.codec : d.video
     const acodec = allowedAudioCodecs(c).includes(a.codec) ? a.codec : d.audio
-    const video: V = { ...v, codec, profile: fixProfile(codec, v.profile) }
+    const video: V = { ...v, codec, profile: fixProfile(codec, v.profile, c) }
     if (c === 'gif' && !video.gif) video.gif = { ...DEFAULT_GIF }
     if (!TEN_BIT_CODECS.includes(codec)) video.tenBit = false
     onChange({ ...s, container: c, video, audio: { ...a, codec: acodec }, faststart: ['mp4', 'mov', 'm4a'].includes(c) ? s.faststart ?? true : false })
   }
 
   const setCodec = (codec: VideoCodecId): void =>
-    setV({ codec, profile: fixProfile(codec, v.profile), tenBit: TEN_BIT_CODECS.includes(codec) ? v.tenBit : false })
+    setV({ codec, profile: fixProfile(codec, v.profile, s.container), tenBit: TEN_BIT_CODECS.includes(codec) ? v.tenBit : false })
+
+  // Choosing a DVD profile also sets the frame fields to the standard (the engine enforces it either way), so the
+  // size readout and preset summary match the output.
+  const setProfile = (p: string): void => {
+    const profile = p || null
+    if (v.codec === 'mpeg2' && (profile === 'dvd-ntsc' || profile === 'dvd-pal')) {
+      const std = DVD_STANDARDS[profile === 'dvd-ntsc' ? 'ntsc' : 'pal']
+      setCustomRes(false)
+      setV({ profile, width: std.width, height: std.height, scaleMode: 'pad', noUpscale: false, fps: std.fps })
+    } else {
+      setV({ profile })
+    }
+  }
 
   const setRateMode = (mode: RateControl['mode']): void => {
     const prevKbps = v.rate.mode === 'crf' ? 8000 : v.rate.bitrateKbps
@@ -117,8 +144,21 @@ export function VideoSettingsForm({
   const autoHwFamily = caps ? HW_FAMILIES.find((f) => caps.hw[f] && HW_CODECS[f].includes(v.codec)) : undefined
   const outSize = computeVideoOutputSize(sourceInfo, s)
   const rateApplies = RATE_CODECS.includes(v.codec)
-  const profiles: readonly string[] | null = v.codec === 'prores' ? PRORES_PROFILES : v.codec === 'dnxhr' ? DNXHR_PROFILES : v.codec === 'h264' ? H264_PROFILES : null
-  const lossyAudio = ['aac', 'mp3', 'opus'].includes(a.codec)
+  const speedApplies = SPEED_CODECS.includes(v.codec)
+  const dvd = dvdStandard(s)
+  const frameLocked = disabled || v.codec === 'copy' || !!dvd
+  const profiles: readonly string[] | null =
+    v.codec === 'prores'
+      ? PRORES_PROFILES
+      : v.codec === 'dnxhr'
+        ? DNXHR_PROFILES
+        : v.codec === 'h264'
+          ? H264_PROFILES
+          : v.codec === 'mpeg2' && (s.container === 'mpg' || !!v.profile)
+            ? MPEG2_PROFILES
+            : null
+  const lossyAudio = LOSSY_AUDIO.includes(a.codec)
+  const audioBitrates = AUDIO_BITRATES_BY_CODEC[a.codec] ?? AUDIO_BITRATES
   const audioActive = a.codec !== 'none' && a.codec !== 'copy'
   const gif = v.gif ?? DEFAULT_GIF
   const setGif = (patch: Partial<GifSettings>): void => setV({ gif: { ...gif, ...patch } })
@@ -144,6 +184,13 @@ export function VideoSettingsForm({
             <Select value={s.container} onChange={(c) => setContainer(c as OutputContainer)} disabled={disabled} aria-label={t('video.container')}>
               <optgroup label={t('video.videoFormats')}>
                 {VIDEO_CONTAINERS.map((c) => (
+                  <option key={c} value={c}>
+                    {CONTAINER_LABEL[c]}
+                  </option>
+                ))}
+              </optgroup>
+              <optgroup label={t('formats.legacyFormats')}>
+                {LEGACY_VIDEO_CONTAINERS.map((c) => (
                   <option key={c} value={c}>
                     {CONTAINER_LABEL[c]}
                   </option>
@@ -294,25 +341,28 @@ export function VideoSettingsForm({
                     </div>
                   </Row>
                 )}
-                <Row label={t('video.speed')}>
-                  <Segmented<EncodeSpeed>
-                    value={v.speed}
-                    onChange={(speed) => setV({ speed })}
-                    disabled={disabled}
-                    ariaLabel={t('video.speed')}
-                    options={[
-                      { value: 'fast', label: t('video.speedFast') },
-                      { value: 'balanced', label: t('video.speedBalanced') },
-                      { value: 'quality', label: t('video.speedQuality') },
-                    ]}
-                  />
-                </Row>
+                {speedApplies && (
+                  <Row label={t('video.speed')}>
+                    <Segmented<EncodeSpeed>
+                      value={v.speed}
+                      onChange={(speed) => setV({ speed })}
+                      disabled={disabled}
+                      ariaLabel={t('video.speed')}
+                      options={[
+                        { value: 'fast', label: t('video.speedFast') },
+                        { value: 'balanced', label: t('video.speedBalanced') },
+                        { value: 'quality', label: t('video.speedQuality') },
+                      ]}
+                    />
+                  </Row>
+                )}
               </>
             )}
             {profiles && (
               <Row label={t('video.profile')}>
-                <Select value={v.profile ?? ''} onChange={(p) => setV({ profile: p || null })} disabled={disabled} aria-label={t('video.profile')}>
+                <Select value={v.profile ?? ''} onChange={setProfile} disabled={disabled} aria-label={t('video.profile')}>
                   {v.codec === 'h264' && <option value="">{t('common.auto')}</option>}
+                  {v.codec === 'mpeg2' && <option value="">{t('formats.mpeg2Standard')}</option>}
                   {profiles.map((p) => (
                     <option key={p} value={p}>
                       {t(`profile.${v.codec}.${p}` as MessageKey)}
@@ -332,6 +382,8 @@ export function VideoSettingsForm({
                 />
               </Row>
             )}
+            {v.codec === 'wmv2' && <p className="note">{t('formats.wmvNote')}</p>}
+            {v.codec === 'mjpeg' && <p className="note">{t('formats.mjpegNote')}</p>}
           </Section>
         )}
 
@@ -354,7 +406,7 @@ export function VideoSettingsForm({
         {!audioOnly && s.container !== 'gif' && (
           <Section title={t('video.frame')} icon={Frame}>
             <Row label={t('video.resolution')}>
-              <Select value={resSelect} onChange={setRes} disabled={disabled || v.codec === 'copy'} aria-label={t('video.resolution')}>
+              <Select value={resSelect} onChange={setRes} disabled={frameLocked} aria-label={t('video.resolution')}>
                 <option value="source">{t('video.resSource')}</option>
                 {RESOLUTIONS.map((r) => (
                   <option key={r} value={r}>
@@ -367,15 +419,15 @@ export function VideoSettingsForm({
             {resSelect === 'custom' && (
               <Row label={t('video.size')} hint={t('video.sizeHint')}>
                 <div className="inline-controls">
-                  <NumberInput value={v.width} onChange={(width) => setV({ width })} min={16} max={8192} step={2} integer allowEmpty placeholder={t('common.auto')} width={96} suffix="W" disabled={disabled} ariaLabel={t('video.width')} />
+                  <NumberInput value={v.width} onChange={(width) => setV({ width })} min={16} max={8192} step={2} integer allowEmpty placeholder={t('common.auto')} width={96} suffix="W" disabled={disabled || !!dvd} ariaLabel={t('video.width')} />
                   <span className="times">×</span>
-                  <NumberInput value={v.height} onChange={(height) => setV({ height })} min={16} max={8192} step={2} integer allowEmpty placeholder={t('common.auto')} width={96} suffix="H" disabled={disabled} ariaLabel={t('video.height')} />
+                  <NumberInput value={v.height} onChange={(height) => setV({ height })} min={16} max={8192} step={2} integer allowEmpty placeholder={t('common.auto')} width={96} suffix="H" disabled={disabled || !!dvd} ariaLabel={t('video.height')} />
                 </div>
               </Row>
             )}
             {v.width != null && v.height != null && (
               <Row label={t('video.scaleMode')} hint={t(`scale.${v.scaleMode}.hint` as MessageKey)}>
-                <Select value={v.scaleMode} onChange={(m) => setV({ scaleMode: m as ScaleMode })} disabled={disabled || v.codec === 'copy'} aria-label={t('video.scaleMode')}>
+                <Select value={v.scaleMode} onChange={(m) => setV({ scaleMode: m as ScaleMode })} disabled={frameLocked} aria-label={t('video.scaleMode')}>
                   {(['fit', 'pad', 'crop', 'stretch'] as const).map((m) => (
                     <option key={m} value={m}>
                       {t(`scale.${m}` as MessageKey)}
@@ -386,11 +438,11 @@ export function VideoSettingsForm({
             )}
             {(v.width != null || v.height != null) && (
               <Row label="">
-                <Checkbox checked={v.noUpscale} onChange={(noUpscale) => setV({ noUpscale })} label={t('video.noUpscale')} disabled={disabled || v.codec === 'copy'} />
+                <Checkbox checked={v.noUpscale} onChange={(noUpscale) => setV({ noUpscale })} label={t('video.noUpscale')} disabled={frameLocked} />
               </Row>
             )}
             <Row label={t('video.fps')}>
-              <Select value={v.fps == null ? '' : String(v.fps)} onChange={(f) => setV({ fps: f ? Number(f) : null })} disabled={disabled || v.codec === 'copy'} aria-label={t('video.fps')}>
+              <Select value={v.fps == null ? '' : String(v.fps)} onChange={(f) => setV({ fps: f ? Number(f) : null })} disabled={frameLocked} aria-label={t('video.fps')}>
                 <option value="">{t('video.fpsSource')}</option>
                 {FPS_OPTIONS.map((f) => (
                   <option key={f} value={String(f)}>
@@ -399,6 +451,11 @@ export function VideoSettingsForm({
                 ))}
               </Select>
             </Row>
+            {dvd && (
+              <p className="note">
+                {t('formats.dvdNote', { size: `${DVD_STANDARDS[dvd].width}×${DVD_STANDARDS[dvd].height}`, fps: DVD_STANDARDS[dvd].fps })}
+              </p>
+            )}
           </Section>
         )}
 
@@ -458,7 +515,7 @@ export function VideoSettingsForm({
           {lossyAudio && (
             <Row label={t('video.audioBitrate')}>
               <Select value={String(a.bitrateKbps ?? 192)} onChange={(b) => setA({ bitrateKbps: Number(b) })} disabled={disabled} aria-label={t('video.audioBitrate')}>
-                {AUDIO_BITRATES.map((b) => (
+                {audioBitrates.map((b) => (
                   <option key={b} value={String(b)}>
                     {b} kbps
                   </option>

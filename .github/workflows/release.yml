@@ -1,5 +1,12 @@
 name: Release
 
+# Pushing a v* tag (npm run release:patch / release:minor) builds every platform and publishes a GitHub Release with
+# the installers, the portable exe, latest*.yml and the .blockmap files — the installed app auto-updates from these.
+#   1. prepare:  the tag must match package.json; create the release as a draft (hidden from releases/latest)
+#   2. build:    each platform runs `electron-builder --publish always`, uploading into that draft
+#   3. publish:  once every build succeeded, the draft becomes the latest release (apps start seeing the update)
+# A manual run (workflow_dispatch) only builds and uploads workflow artifacts; nothing is published.
+
 on:
   push:
     tags: ['v*']
@@ -13,9 +20,45 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  prepare:
+    name: Prepare draft release
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Tag must match package.json version
+        shell: bash
+        run: |
+          VERSION="$(node -p "require('./package.json').version")"
+          if [ "v$VERSION" != "$GITHUB_REF_NAME" ]; then
+            echo "::error::Tag $GITHUB_REF_NAME does not match package.json version $VERSION (use npm run release:patch)"
+            exit 1
+          fi
+
+      - name: Create draft release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+        shell: bash
+        run: |
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "Release $TAG already exists; builds upload into it."
+          else
+            gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --draft --verify-tag --title "Media Converter $TAG" \
+              --notes "Unsigned builds: Windows SmartScreen and macOS Gatekeeper will warn on first launch (see README). The installed Windows version updates itself; the portable exe shows a reminder. Bundled FFmpeg is GPL-3.0-or-later; see THIRD_PARTY_NOTICES.md for its source."
+          fi
+
   build:
     name: Build (${{ matrix.name }})
+    needs: prepare
+    # also runs for workflow_dispatch, where prepare is skipped
+    if: ${{ !cancelled() && (needs.prepare.result == 'success' || needs.prepare.result == 'skipped') }}
     runs-on: ${{ matrix.os }}
+    permissions:
+      contents: write
     strategy:
       fail-fast: false
       matrix:
@@ -24,19 +67,21 @@ jobs:
             os: windows-latest
             # BtbN build is pinned and verified locally: every required encoder must be present
             ffmpeg: node scripts/fetch-ffmpeg.mjs --strict
-            dist: npx electron-builder --win --publish never
+            target: --win
           - name: macos
             os: macos-latest
             # one dmg per architecture → ffmpeg for both
             ffmpeg: node scripts/fetch-ffmpeg.mjs --arch x64,arm64
-            dist: npx electron-builder --mac --publish never
+            target: --mac
           - name: linux
             os: ubuntu-latest
             ffmpeg: node scripts/fetch-ffmpeg.mjs
-            dist: npx electron-builder --linux --publish never
+            target: --linux
     env:
       # unsigned builds: do not look for signing identities in the keychain / cert store
       CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+      # upload to the draft release only for tag pushes
+      PUBLISH: ${{ startsWith(github.ref, 'refs/tags/v') && 'always' || 'never' }}
     steps:
       - uses: actions/checkout@v5
 
@@ -69,8 +114,12 @@ jobs:
       - name: Build app
         run: npm run build
 
-      - name: Package
-        run: ${{ matrix.dist }}
+      # electron-builder.yml → publish: github (alan940408/media-converter, releaseType: release). With the draft from
+      # the prepare job in place it uploads the installers, latest*.yml and .blockmap files into that draft.
+      - name: Package (and upload to the draft release)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: npx electron-builder ${{ matrix.target }} --publish ${{ env.PUBLISH }}
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
@@ -83,25 +132,38 @@ jobs:
             release/*.dmg
             release/*.AppImage
             release/*.deb
+            release/*.yml
+            release/*.blockmap
+            !release/builder-debug.yml
+            !release/builder-effective-config.yaml
 
-  draft-release:
-    name: Draft GitHub release
+  publish:
+    name: Publish release
     needs: build
+    # only when every platform built and uploaded; otherwise the draft stays for a look (publish or delete it by hand)
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
-      - uses: actions/download-artifact@v4
-        with:
-          path: dist
-          merge-multiple: true
-
-      - name: Create draft release with all installers
+      - name: Check the uploaded assets
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ github.ref_name }}
+        shell: bash
         run: |
-          ls -la dist
-          gh release create "$TAG" dist/* --repo "$GITHUB_REPOSITORY" --draft --title "Media Converter $TAG" \
-            --notes "Unsigned builds: Windows SmartScreen and macOS Gatekeeper will warn on first launch (see README). Bundled FFmpeg is GPL-3.0-or-later; see THIRD_PARTY_NOTICES.md for its source."
+          ASSETS="$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name')"
+          echo "$ASSETS"
+          # the installed Windows app updates from latest.yml + the Setup exe; the portable exe is linked from the page
+          for pattern in '^latest\.yml$' 'Setup.*\.exe$' 'Portable.*\.exe$'; do
+            if ! grep -Eq "$pattern" <<<"$ASSETS"; then
+              echo "::error::Release $TAG has no asset matching $pattern; leaving it as a draft"
+              exit 1
+            fi
+          done
+
+      - name: Publish the draft as the latest release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+        run: gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --draft=false --latest

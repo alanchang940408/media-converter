@@ -25,6 +25,7 @@ export function defaultSettings(): AppSettings {
     preventSleep: true,
     removeFinished: false,
     ffmpegPath: null,
+    autoCheckUpdates: true,
   }
 }
 
@@ -65,6 +66,7 @@ export function sanitizeSettings(input: Partial<AppSettings> | unknown, base: Ap
     preventSleep: bool(pick('preventSleep'), base.preventSleep),
     removeFinished: bool(pick('removeFinished'), base.removeFinished),
     ffmpegPath: strOrNull(pick('ffmpegPath')),
+    autoCheckUpdates: bool(pick('autoCheckUpdates'), base.autoCheckUpdates),
   }
 }
 

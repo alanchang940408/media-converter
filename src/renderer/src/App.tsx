@@ -1,6 +1,6 @@
 // App shell: boot, theme, header with tabs + hardware badge, view switching, global modals, drop overlay.
 import { useEffect, useRef, useState } from 'react'
-import { Cpu, FilePen, FolderSearch, Gauge, Layers, ListVideo, RefreshCw, Settings, TriangleAlert, Zap } from 'lucide-react'
+import { CircleArrowDown, Cpu, ExternalLink, FilePen, FolderSearch, Gauge, Layers, ListVideo, RefreshCw, RotateCw, Settings, TriangleAlert, X, Zap } from 'lucide-react'
 import type { EncoderCapabilities } from '../../shared/types'
 import { HW_PRIORITY } from '../../shared/videoRules'
 import { api, isMock } from './api'
@@ -9,7 +9,9 @@ import { LOCALE_HTML_LANG, type MessageKey } from './i18n'
 import { isFileDrag } from './lib/dnd'
 import { AppMark } from './components/AppMark'
 import { DialogHost, DropOverlay, Toasts } from './components/Overlays'
-import { Button, Spinner, cx } from './components/ui'
+import { Button, IconButton, Spinner, cx } from './components/ui'
+import { dismissUpdateNotice, initUpdates, installUpdateNow, openReleasePage, useUpdates } from './updates'
+import './styles/update.css'
 import { QueueView } from './views/QueueView'
 import { PresetsView } from './views/PresetsView'
 import { WatchView } from './views/WatchView'
@@ -25,6 +27,7 @@ export function App() {
 
   const view = useStore((s) => s.view)
   useBoot()
+  useEffect(() => initUpdates(), [])
   useTheme()
   useHtmlLang()
   const dragging = useWindowFileDrop(ready && !loadError)
@@ -35,6 +38,7 @@ export function App() {
   return (
     <div className="app">
       <Header />
+      <UpdateBar />
       <main className="app-main">
         <CurrentView />
         <BatchRenameView active={view === 'batch'} />
@@ -195,6 +199,7 @@ function Header() {
       <div className="brand">
         <AppMark size={22} />
         <span className="brand-name">{t('app.name')}</span>
+        <BrandVersion />
         {isMock && (
           <span className="mock-badge" title={t('app.mockBadgeHint')}>
             {t('app.mockBadge')}
@@ -227,6 +232,66 @@ function Header() {
         </button>
       </div>
     </header>
+  )
+}
+
+/** Small muted "v0.1.0" next to the app name; opens Settings → About (updates). A dot marks a waiting update. */
+function BrandVersion() {
+  const t = useT()
+  const version = useStore((s) => s.appInfo?.version)
+  const update = useUpdates((s) => s.state)
+  if (!version) return null
+  const ready = update?.status === 'downloaded' && !!update.version
+  const available = !ready && update?.status === 'available' && update.mode !== 'auto' && !!update.version
+  const title = ready
+    ? t('update.readyHint', { v: update!.version! })
+    : available
+      ? t('update.availableHint', { v: update!.version! })
+      : t('update.versionHint', { v: version })
+  return (
+    <button type="button" className="brand-version" onClick={() => openSettings('about')} title={title} aria-label={title}>
+      <span>v{version}</span>
+      {(ready || available) && <span className="brand-version-dot" aria-hidden />}
+    </button>
+  )
+}
+
+/** Persistent bar under the header: a downloaded update (restart now / later) or, for portable builds, a download link. */
+function UpdateBar() {
+  const t = useT()
+  const notice = useUpdates((s) => s.notice)
+  if (!notice) return null
+  const downloaded = notice.kind === 'downloaded'
+  const text = t(downloaded ? 'update.barDownloaded' : notice.kind === 'portable' ? 'update.barPortable' : 'update.barManual', { v: notice.version })
+  return (
+    <div className="update-bar" role="status" aria-label={t('update.barRegion')}>
+      <span className="update-bar-icon">
+        <CircleArrowDown size={17} aria-hidden />
+      </span>
+      <div className="update-bar-text">
+        <strong>{text}</strong>
+        {downloaded && <span className="update-bar-detail">{t('update.barDownloadedDetail')}</span>}
+      </div>
+      <div className="update-bar-actions">
+        {downloaded ? (
+          <>
+            <Button size="sm" variant="primary" icon={RotateCw} onClick={() => void installUpdateNow()}>
+              {t('update.restartNow')}
+            </Button>
+            <Button size="sm" variant="ghost" onClick={dismissUpdateNotice}>
+              {t('update.later')}
+            </Button>
+          </>
+        ) : (
+          <>
+            <Button size="sm" variant="primary" icon={ExternalLink} onClick={() => void openReleasePage()}>
+              {t('update.download')}
+            </Button>
+            <IconButton icon={X} label={t('common.close')} onClick={dismissUpdateNotice} />
+          </>
+        )}
+      </div>
+    </div>
   )
 }
 

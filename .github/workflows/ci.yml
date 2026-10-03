@@ -13,10 +13,18 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
+env:
+  # Same FFmpeg source commit as the bundled Windows build (scripts/fetch-ffmpeg.mjs → BtbN n8.1.2-50-g1a748fe2cd),
+  # Linux static GPL variant, so CI tests the ffmpeg the app ships instead of whatever apt has (Ubuntu 24.04 = 6.1).
+  FFMPEG_URL: https://github.com/BtbN/FFmpeg-Builds/releases/download/autobuild-2026-08-31-13-27/ffmpeg-n8.1.2-50-g1a748fe2cd-linux64-gpl-8.1.tar.xz
+  FFMPEG_SHA256: c733b4b2951e5957e15505f788b2c65a7a41b6da4b289e295852cc38079b4d2b
+
 jobs:
   check:
     name: Typecheck + unit tests
-    runs-on: ubuntu-latest
+    # pinned (ubuntu-latest moves to 26.04 from 2026-10-19); bump deliberately
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v5
 
@@ -25,11 +33,26 @@ jobs:
           node-version: 24
           cache: npm
 
-      - name: Install ffmpeg
+      - name: Install ffmpeg (pinned static build)
         run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends ffmpeg
-          ffmpeg -hide_banner -version | head -n 1
+          set -euo pipefail
+          dir="$RUNNER_TEMP/ffmpeg"
+          mkdir -p "$dir"
+          curl -fsSL --retry 5 --retry-all-errors -o "$dir/ffmpeg.tar.xz" "$FFMPEG_URL"
+          echo "$FFMPEG_SHA256  $dir/ffmpeg.tar.xz" | sha256sum -c -
+          tar -xJf "$dir/ffmpeg.tar.xz" -C "$dir"
+          rm "$dir/ffmpeg.tar.xz"
+          bin=$(dirname "$(find "$dir" -type f -name ffmpeg -print -quit)")
+          test -x "$bin/ffmpeg"
+          test -x "$bin/ffprobe"
+          echo "$bin" >> "$GITHUB_PATH"
+          "$bin/ffmpeg" -hide_banner -version | sed -n 1p
+          # every software encoder a preset can pick must be compiled in
+          encoders=$("$bin/ffmpeg" -hide_banner -encoders)
+          for e in libx264 libx265 libsvtav1 libaom-av1 libvpx-vp9 prores_ks dnxhd gif aac libmp3lame libopus flac \
+                   pcm_s16le pcm_s24le mpeg2video mpeg1video mpeg4 wmv2 mjpeg mp2 ac3 wmav2; do
+            grep -qE "^ [VAS][A-Z.]{5} $e " <<<"$encoders" || { echo "::error::ffmpeg build lacks encoder $e"; exit 1; }
+          done
 
       - name: Install dependencies
         run: npm ci
@@ -42,8 +65,9 @@ jobs:
 
   e2e:
     name: E2E (Electron, Linux)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: check
+    timeout-minutes: 30
     # informational until the suite has been stable on CI for a while
     continue-on-error: true
     steps:
@@ -54,20 +78,40 @@ jobs:
           node-version: 24
           cache: npm
 
-      - name: Install ffmpeg + display server
+      - name: Install ffmpeg (pinned static build) + display server
         run: |
+          set -euo pipefail
+          dir="$RUNNER_TEMP/ffmpeg"
+          mkdir -p "$dir"
+          curl -fsSL --retry 5 --retry-all-errors -o "$dir/ffmpeg.tar.xz" "$FFMPEG_URL"
+          echo "$FFMPEG_SHA256  $dir/ffmpeg.tar.xz" | sha256sum -c -
+          tar -xJf "$dir/ffmpeg.tar.xz" -C "$dir"
+          rm "$dir/ffmpeg.tar.xz"
+          bin=$(dirname "$(find "$dir" -type f -name ffmpeg -print -quit)")
+          test -x "$bin/ffmpeg"
+          test -x "$bin/ffprobe"
+          echo "$bin" >> "$GITHUB_PATH"
+          "$bin/ffmpeg" -hide_banner -version | sed -n 1p
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends ffmpeg xvfb
+          sudo apt-get install -y --no-install-recommends xvfb
           # Ubuntu 24.04 blocks unprivileged user namespaces, which Chromium's sandbox needs
           sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
 
       - name: Install dependencies
         run: npm ci
 
+      # the electron package (no postinstall) downloads its binary on first use, not at npm install: fetch it here so
+      # a download problem shows up as its own step instead of inside the first test's app launch
+      - name: Download Electron
+        run: node node_modules/electron/install.js
+
       - name: Build app
         run: npm run build
 
       - name: Run Playwright
+        # same as local runs: closing the app while a job is still active must not wait on the quit dialog
+        env:
+          MC_NO_QUIT_CONFIRM: '1'
         run: xvfb-run -a npm run e2e
 
       - name: Upload screenshots and report

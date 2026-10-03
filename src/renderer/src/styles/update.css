@@ -1,0 +1,127 @@
+/* Auto-update: version label in the header, update bar under the header, Settings → About "Updates" group. */
+
+/* ───────────── header version ───────────── */
+.brand-version {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 20px;
+  margin-left: -4px;
+  padding: 0 5px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-3);
+  font-size: var(--fs-xs);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.brand-version:hover {
+  background: var(--panel-3);
+  color: var(--text-2);
+}
+
+.brand-version:focus-visible {
+  outline: none;
+  box-shadow: var(--focus);
+}
+
+.brand-version-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+
+/* ───────────── update bar ───────────── */
+.update-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 40px;
+  padding: 6px 10px 6px 14px;
+  border-bottom: 1px solid var(--border);
+  background: var(--accent-soft);
+  flex-shrink: 0;
+}
+
+.update-bar-icon {
+  display: flex;
+  color: var(--accent-text);
+  flex-shrink: 0;
+}
+
+.update-bar-text {
+  display: flex;
+  flex: 1;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px 10px;
+  min-width: 0;
+}
+
+.update-bar-text strong {
+  font-weight: 600;
+}
+
+.update-bar-detail {
+  font-size: var(--fs-sm);
+  color: var(--text-2);
+}
+
+.update-bar-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+/* ───────────── Settings → About ───────────── */
+.st-update {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.st-update-status {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  min-width: 0;
+  line-height: 1.45;
+}
+
+.st-update-status > svg {
+  flex-shrink: 0;
+  margin-top: 2px;
+  color: var(--text-3);
+}
+
+.st-update-status.ok > svg {
+  color: var(--success);
+}
+
+.st-update-status.accent > svg {
+  color: var(--accent-text);
+}
+
+.st-update-status.warn > svg {
+  color: var(--warning);
+}
+
+.st-update-sub {
+  margin-top: 1px;
+  font-size: var(--fs-xs);
+  color: var(--text-3);
+  font-variant-numeric: tabular-nums;
+}
+
+.st-update-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}

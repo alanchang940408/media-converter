@@ -1,7 +1,7 @@
 // Exposes window.api (MediaApi) to the sandboxed renderer. Bundled to CommonJS (index.cjs):
 // only 'electron' is required at runtime; IPC channel names are inlined by the bundler.
 import { contextBridge, ipcRenderer, webUtils, type IpcRendererEvent } from 'electron'
-import { IPC, type InvokeMethod, type MediaApi } from '../shared/api'
+import { IPC, type InvokeMethod, type MediaApi, type UpdateEvent } from '../shared/api'
 import type { QueueEvent } from '../shared/types'
 
 /** ipcRenderer.invoke wraps errors as "Error invoking remote method 'mc:invoke': Error: <msg>" — keep only <msg>. */
@@ -83,6 +83,18 @@ const api: MediaApi = {
 
   getSettings: invoke('getSettings'),
   saveSettings: invoke('saveSettings'),
+
+  getUpdateState: invoke('getUpdateState'),
+  checkForUpdates: invoke('checkForUpdates'),
+  installUpdateNow: invoke('installUpdateNow'),
+  openReleasePage: invoke('openReleasePage'),
+  onUpdateEvent: (cb) => {
+    const listener = (_e: IpcRendererEvent, e: UpdateEvent): void => cb(e)
+    ipcRenderer.on(IPC.updateEvent, listener)
+    return () => {
+      ipcRenderer.removeListener(IPC.updateEvent, listener)
+    }
+  },
 
   onExternalFiles: (cb) => {
     externalListeners.add(cb)

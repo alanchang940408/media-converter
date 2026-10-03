@@ -13,6 +13,8 @@ import { expandPaths, type Queue } from './queue/Queue'
 import type { SettingsManager } from './settings'
 import type { ThumbnailService } from './thumbnails'
 import type { WatchManager } from './watch/WatchManager'
+import type { Updater } from './updater'
+import type { UpdateEvent } from '../shared/api'
 
 export interface IpcContext {
   getWindow: () => BrowserWindow | null
@@ -24,6 +26,7 @@ export interface IpcContext {
   caps: CapabilitiesCache
   ffmpeg: FfmpegEngine
   image: ImageEngine
+  updater: Updater
 }
 
 type Handlers = {
@@ -238,6 +241,12 @@ export function createHandlers(ctx: IpcContext): Handlers {
     // ── settings ──
     getSettings: async () => settings.get(),
     saveSettings: async (patch) => settings.patch(patch ?? {}),
+
+    // ── updates ──
+    getUpdateState: async () => ctx.updater.getState(),
+    checkForUpdates: () => ctx.updater.check(true),
+    installUpdateNow: () => ctx.updater.installNow(),
+    openReleasePage: () => ctx.updater.openReleasePage(),
   }
 }
 
@@ -261,4 +270,8 @@ export function sendQueueEvent(win: BrowserWindow | null, e: QueueEvent): void {
 
 export function sendExternalFiles(win: BrowserWindow | null, paths: string[]): void {
   if (paths.length && win && !win.isDestroyed() && !win.webContents.isDestroyed()) win.webContents.send(IPC.externalFiles, paths)
+}
+
+export function sendUpdateEvent(win: BrowserWindow | null, e: UpdateEvent): void {
+  if (win && !win.isDestroyed() && !win.webContents.isDestroyed()) win.webContents.send(IPC.updateEvent, e)
 }

@@ -1,6 +1,6 @@
 // App / window lifecycle. './store' must stay the first import: it applies MC_USER_DATA_DIR before anything reads userData.
 import { applyUserDataOverride, flushAllStoresSync, openStore, type JsonStore } from './store'
-import { app, BrowserWindow, dialog, nativeTheme, Notification, powerSaveBlocker, screen, shell } from 'electron'
+import { app, BrowserWindow, dialog, nativeTheme, net, Notification, powerSaveBlocker, screen, shell } from 'electron'
 import { existsSync, statSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
@@ -11,13 +11,14 @@ import { CapabilitiesCache } from './caps'
 import { ffmpegEngine } from './ffmpeg'
 import { t } from './i18n'
 import { imageEngine } from './image'
-import { registerIpc, sendExternalFiles, sendQueueEvent } from './ipc'
+import { registerIpc, sendExternalFiles, sendQueueEvent, sendUpdateEvent } from './ipc'
 import { emptyPresetFile, parsePresetFile, PresetStore } from './presets/store'
 import { handleMediaProtocol, registerMediaScheme } from './protocol'
 import { emptyJournal, parseJournal, type FileOpJournal } from './queue/journal'
 import { emptyQueue, Queue, type PersistedQueue } from './queue/Queue'
 import { defaultSettings, sanitizeSettings, SettingsManager } from './settings'
 import { ThumbnailService } from './thumbnails'
+import { Updater, type AutoUpdaterLike } from './updater'
 import {
   emptyProcessedFile,
   emptyWatchFolderFile,
@@ -58,6 +59,7 @@ let settings: SettingsManager
 let queue: Queue
 let watch: WatchManager
 let winStore: JsonStore<WindowState>
+let updater: Updater
 
 /** Media files (and folders, when packaged) passed on the command line. */
 function filesFromArgv(argv: string[], cwd: string): string[] {
@@ -261,6 +263,42 @@ async function cleanup(): Promise<void> {
   flushAllStoresSync()
 }
 
+/**
+ * "Restart now" for a downloaded update: the same confirmation as quitting with work in progress, then the normal
+ * shutdown first — the NSIS installer force-closes a still-running app about 2 s after it starts.
+ */
+async function prepareUpdateInstall(): Promise<boolean> {
+  if (!confirmQuit()) return false
+  quitConfirmed = true
+  if (!cleaning) {
+    cleaning = cleanup().finally(() => {
+      cleanedUp = true
+    })
+  }
+  await cleaning
+  return true
+}
+
+function createUpdater(): Updater {
+  return new Updater({
+    currentVersion: app.getVersion(),
+    isPackaged: app.isPackaged,
+    platform: process.platform,
+    env: process.env,
+    settings,
+    loadAutoUpdater: async () => {
+      // CommonJS package: under ESM its exports arrive as the default export
+      const mod = (await import('electron-updater')) as unknown as { default?: { autoUpdater?: unknown }; autoUpdater?: unknown }
+      return (mod.default?.autoUpdater ?? mod.autoUpdater) as AutoUpdaterLike
+    },
+    fetch: (url, init) => net.fetch(url, init),
+    emit: (e) => sendUpdateEvent(win, e),
+    openExternal: (url) => shell.openExternal(url),
+    beforeInstall: prepareUpdateInstall,
+    quit: () => app.quit(),
+  })
+}
+
 async function startApp(): Promise<void> {
   const settingsStore = openStore<AppSettings>('settings.json', defaultSettings, { parse: (raw) => sanitizeSettings(raw) })
   settings = new SettingsManager(settingsStore, {
@@ -322,7 +360,8 @@ async function startApp(): Promise<void> {
     if (win && !win.isDestroyed()) win.setBackgroundColor(backgroundColor())
   })
 
-  registerIpc({ getWindow: () => win, queue, presets, watch, settings, thumbnails, caps, ffmpeg: ffmpegEngine, image: imageEngine })
+  updater = createUpdater()
+  registerIpc({ getWindow: () => win, queue, presets, watch, settings, thumbnails, caps, ffmpeg: ffmpegEngine, image: imageEngine, updater })
   handleMediaProtocol()
   createWindow()
 
@@ -330,6 +369,8 @@ async function startApp(): Promise<void> {
   void caps.get()
   void queue.init().catch((err) => console.error('[queue] init failed:', err))
   void watch.start().catch((err) => console.error('[watch] start failed:', err))
+  // GitHub Releases: first check ~10 s after start, then every 6 h (settings.autoCheckUpdates); off in dev runs
+  updater.start()
 }
 
 if (!app.requestSingleInstanceLock()) {

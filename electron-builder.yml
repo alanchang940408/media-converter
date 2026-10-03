@@ -46,7 +46,17 @@ electronLanguages: [en-US, zh-TW, zh-CN, ja]
 
 # sharp ships N-API prebuilt binaries per platform; nothing to compile
 npmRebuild: false
-publish: null
+
+# Updates come from the GitHub Releases of this repository. electron-builder writes resources/app-update.yml into the
+# packaged app (read by electron-updater in the installed build) and latest.yml + .blockmap files next to the installers.
+# Uploading only happens with `--publish always` (the release workflow, on a v* tag); `npm run dist` passes `--publish never`.
+# The workflow creates a draft release first, every build job uploads into it, and the last job publishes it — so
+# releases/latest never points at a release whose latest.yml / installers are still missing.
+publish:
+  provider: github
+  owner: alan940408
+  repo: media-converter
+  releaseType: release
 
 win:
   icon: build/icon.ico

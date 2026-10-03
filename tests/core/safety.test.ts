@@ -1,6 +1,6 @@
 // Data-safety regressions: never clobber a file the user did not ask to replace, preview == run, careful undo,
 // damaged stores (real file system, fake engines).
-import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { relocate, isReplacedFile, nodeFileOps } from '../../src/main/queue/fileOps'
@@ -141,9 +141,12 @@ describe('file operations', () => {
     await addFiles(q, { paths: [src], filePresetId: 'file-rename', output: { nameTemplate: 'n_{name}' } })
     q.queue.start()
     await waitFor(() => settled(q), 5000, 'renames to settle')
-    // n_a.txt is replaced by another file; n_b.txt is only edited in place
+    // n_a.txt is replaced by another file; n_b.txt is only edited in place. The other file is created while n_a.txt
+    // still exists: a file created right after a delete can get the freed inode number back (ext4 on Linux CI), and
+    // with the same dev:ino file id undo cannot tell it apart from an edit.
+    touch(join(src, 'other.tmp'), 'SOMETHING ELSE')
     rmSync(join(src, 'n_a.txt'))
-    touch(join(src, 'n_a.txt'), 'SOMETHING ELSE')
+    renameSync(join(src, 'other.tmp'), join(src, 'n_a.txt'))
     const old = new Date(2015, 0, 1)
     utimesSync(join(src, 'n_a.txt'), old, old)
     writeFileSync(join(src, 'n_b.txt'), 'B edited')

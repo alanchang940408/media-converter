@@ -122,6 +122,45 @@ function audioOnly(container: VideoPresetSettings['container'], codec: AudioCode
   }
 }
 
+/** Legacy containers (MPG / WMV / AVI): software encoders, no faststart. hw stays 'auto' and resolves to the CPU. */
+function legacy(container: 'mpg' | 'wmv' | 'avi', v: VideoPart & Pick<VideoPresetSettings['video'], 'codec'>, a: AudioPart & Pick<VideoPresetSettings['audio'], 'codec'>): VideoPresetSettings {
+  return {
+    container,
+    video: {
+      hw: 'auto',
+      rate: { mode: 'crf', crf: 20 },
+      speed: 'balanced',
+      profile: null,
+      width: null,
+      height: null,
+      scaleMode: 'fit',
+      noUpscale: true,
+      fps: null,
+      ...v,
+    },
+    audio: { bitrateKbps: 192, sampleRate: null, channels: null, ...a },
+    faststart: false,
+  }
+}
+
+/** DVD-Video MPEG-2: the engine enforces the standard frame, rate and bitrate limits; these fields mirror them for the UI. */
+function dvd(standard: 'ntsc' | 'pal'): VideoPresetSettings {
+  return legacy(
+    'mpg',
+    {
+      codec: 'mpeg2',
+      profile: `dvd-${standard}`,
+      rate: { mode: 'vbr', bitrateKbps: 6000, maxKbps: 9000 },
+      width: 720,
+      height: standard === 'ntsc' ? 480 : 576,
+      scaleMode: 'pad',
+      noUpscale: false,
+      fps: standard === 'ntsc' ? 29.97 : 25,
+    },
+    { codec: 'ac3', bitrateKbps: 192, sampleRate: 48000 },
+  )
+}
+
 function gif(width: number, fps: number): VideoPresetSettings {
   return {
     container: 'gif',
@@ -438,6 +477,77 @@ export const BUILTIN_VIDEO_PRESETS: VideoPreset[] = [
       ja: 'ロスレス圧縮。音質はそのままで WAV より小さい。',
     },
     audioOnly('flac', 'flac', null),
+  ),
+  // ── Legacy formats (MPG / WMV / AVI) for older players, TVs and software ──
+  video(
+    'mpeg2-dvd-ntsc',
+    'device',
+    { 'zh-TW': 'DVD MPEG-2（NTSC）', en: 'DVD MPEG-2 (NTSC)', ja: 'DVD MPEG-2（NTSC）' },
+    {
+      'zh-TW': '符合 DVD 規格的 MPEG-2：720×480、29.97 fps、杜比數位音訊。適用台灣、日本、北美的 DVD 燒錄軟體與播放機。',
+      en: 'DVD-Video compliant MPEG-2: 720×480, 29.97 fps, Dolby Digital audio. For DVD authoring and players in North America, Japan and Taiwan.',
+      ja: 'DVD-Video 規格準拠の MPEG-2（720×480・29.97 fps・ドルビーデジタル音声）。日本・北米・台湾の DVD オーサリングやプレーヤー向け。',
+    },
+    dvd('ntsc'),
+  ),
+  video(
+    'mpeg2-dvd-pal',
+    'device',
+    { 'zh-TW': 'DVD MPEG-2（PAL）', en: 'DVD MPEG-2 (PAL)', ja: 'DVD MPEG-2（PAL）' },
+    {
+      'zh-TW': '符合 DVD 規格的 MPEG-2：720×576、25 fps、杜比數位音訊。適用歐洲、中國、香港、澳洲等 PAL 地區。',
+      en: 'DVD-Video compliant MPEG-2: 720×576, 25 fps, Dolby Digital audio. For PAL regions such as Europe, China, Hong Kong and Australia.',
+      ja: 'DVD-Video 規格準拠の MPEG-2（720×576・25 fps・ドルビーデジタル音声）。ヨーロッパ・中国・香港・オーストラリアなど PAL 地域向け。',
+    },
+    dvd('pal'),
+  ),
+  video(
+    'mpeg2-1080p',
+    'device',
+    { 'zh-TW': 'MPEG-2 1080p（MPG）', en: 'MPEG-2 1080p (MPG)', ja: 'MPEG-2 1080p（MPG）' },
+    {
+      'zh-TW': '高畫質 MPEG-2（約 20 Mbps）＋ MP2 音訊，1920×1080 以內。適合只支援 MPEG-2 的電視、播放機與舊版剪輯軟體。',
+      en: 'High-definition MPEG-2 (about 20 Mbps) with MP2 audio, fits 1920×1080. For TVs, players and older editing software that only take MPEG-2.',
+      ja: '高画質 MPEG-2（約 20 Mbps）＋ MP2 音声、1920×1080 以内。MPEG-2 しか扱えないテレビ・プレーヤー・古い編集ソフト向け。',
+    },
+    legacy(
+      'mpg',
+      { codec: 'mpeg2', rate: { mode: 'vbr', bitrateKbps: 20000, maxKbps: 25000 }, width: 1920, height: 1080 },
+      { codec: 'mp2', bitrateKbps: 256 },
+    ),
+  ),
+  video(
+    'wmv-720p',
+    'device',
+    { 'zh-TW': 'WMV 720p', en: 'WMV 720p', ja: 'WMV 720p' },
+    {
+      'zh-TW': 'Windows Media 影片（WMV8 編碼），適合舊版 Windows、Windows Media Player 與 PowerPoint。1280×720 以內。',
+      en: 'Windows Media video (WMV8 codec) for older Windows PCs, Windows Media Player and PowerPoint. Fits 1280×720.',
+      ja: 'Windows Media 動画（WMV8 コーデック）。古い Windows・Windows Media Player・PowerPoint 向け。1280×720 以内。',
+    },
+    legacy('wmv', { codec: 'wmv2', width: 1280, height: 720 }, { codec: 'wmav2', bitrateKbps: 160 }),
+  ),
+  video(
+    'avi-xvid-720p',
+    'device',
+    { 'zh-TW': 'AVI Xvid 720p', en: 'AVI Xvid 720p', ja: 'AVI Xvid 720p' },
+    {
+      'zh-TW': 'Xvid 相容的 MPEG-4 ＋ MP3 音訊（AVI），適合支援 DivX / Xvid 的舊型播放機與電視。1280×720 以內。',
+      en: 'Xvid-compatible MPEG-4 with MP3 audio in AVI, for older DivX / Xvid players and TVs. Fits 1280×720.',
+      ja: 'Xvid 互換の MPEG-4 ＋ MP3 音声（AVI）。DivX / Xvid 対応の古いプレーヤーやテレビ向け。1280×720 以内。',
+    },
+    legacy('avi', { codec: 'mpeg4', width: 1280, height: 720 }, { codec: 'mp3', bitrateKbps: 192 }),
+  ),
+  video(
+    'avi-mjpeg',
+    'editing',
+    { 'zh-TW': 'AVI Motion JPEG（MJPEG）', en: 'AVI Motion JPEG (MJPEG)', ja: 'AVI Motion JPEG（MJPEG）' },
+    {
+      'zh-TW': '每一格都是獨立的 JPEG，舊版剪輯軟體也能流暢拖曳與剪接；無壓縮 PCM 音訊，保留原始尺寸。檔案很大。',
+      en: 'Every frame is a separate JPEG, so even older editing software scrubs and cuts it smoothly. Uncompressed PCM audio, source size. Large files.',
+      ja: '全フレームが独立した JPEG なので、古い編集ソフトでもスムーズにスクラブ・カットできます。非圧縮 PCM 音声、元のサイズ。サイズは大きめ。',
+    },
+    legacy('avi', { codec: 'mjpeg', rate: { mode: 'crf', crf: 18 }, noUpscale: true }, { codec: 'pcm', bitrateKbps: null }),
   ),
 ]
 

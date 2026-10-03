@@ -76,12 +76,18 @@ export type Watermark = ImageWatermark | TextWatermark
 
 // ───────────────────────────── Video / audio presets ─────────────────────────────
 
-export type VideoContainer = 'mp4' | 'mov' | 'mkv' | 'webm' | 'gif'
+/** mpg = MPEG program stream (MPEG-1/2, DVD-Video), wmv = ASF / Windows Media, avi = AVI (Xvid, MJPEG, H.264). */
+export type VideoContainer = 'mp4' | 'mov' | 'mkv' | 'webm' | 'gif' | 'mpg' | 'wmv' | 'avi'
 export type AudioContainer = 'mp3' | 'm4a' | 'wav' | 'flac' | 'ogg'
 export type OutputContainer = VideoContainer | AudioContainer
 
-export type VideoCodecId = 'h264' | 'hevc' | 'av1' | 'vp9' | 'prores' | 'dnxhr' | 'gif' | 'copy' | 'none'
-export type AudioCodecId = 'aac' | 'mp3' | 'opus' | 'pcm' | 'flac' | 'copy' | 'none'
+/** Legacy codecs (software only): mpeg2/mpeg1 = MPEG-1/2 video, mpeg4 = MPEG-4 Part 2 (Xvid), wmv2 = Windows Media Video 8, mjpeg = Motion JPEG. */
+export type VideoCodecId =
+  | 'h264' | 'hevc' | 'av1' | 'vp9' | 'prores' | 'dnxhr'
+  | 'mpeg2' | 'mpeg1' | 'mpeg4' | 'wmv2' | 'mjpeg'
+  | 'gif' | 'copy' | 'none'
+/** mp2 = MPEG-1 Layer II, ac3 = Dolby Digital, wmav2 = Windows Media Audio 2. */
+export type AudioCodecId = 'aac' | 'mp3' | 'opus' | 'pcm' | 'flac' | 'mp2' | 'ac3' | 'wmav2' | 'copy' | 'none'
 
 /** 'auto' = best working hardware encoder for the codec, falling back to software. */
 export type HwAccel = 'auto' | 'none' | 'nvenc' | 'qsv' | 'amf' | 'videotoolbox'
@@ -105,6 +111,8 @@ export type ScaleMode = 'fit' | 'pad' | 'crop' | 'stretch'
 
 export type ProResProfile = 'proxy' | 'lt' | 'standard' | 'hq' | '4444' | '4444xq'
 export type DnxhrProfile = 'lb' | 'sq' | 'hq' | 'hqx' | '444'
+/** MPEG-2 in mpg only: DVD-Video compliant output (null/absent = standard MPEG-2). */
+export type Mpeg2Profile = 'dvd-ntsc' | 'dvd-pal'
 
 export interface GifSettings {
   fps: number
@@ -124,7 +132,7 @@ export interface VideoPresetSettings {
     hw: HwAccel
     rate: RateControl
     speed: EncodeSpeed
-    /** prores: ProResProfile, dnxhr: DnxhrProfile, h264: 'baseline'|'main'|'high'. Ignored otherwise. */
+    /** prores: ProResProfile, dnxhr: DnxhrProfile, h264: 'baseline'|'main'|'high', mpeg2: Mpeg2Profile. Ignored otherwise. */
     profile?: string | null
     /** null = keep source. If only one is set the other follows aspect ratio. Values are rounded to even numbers. */
     width: number | null
@@ -529,6 +537,8 @@ export interface AppSettings {
   removeFinished: boolean
   /** Custom ffmpeg binary (folder or ffmpeg executable); null = bundled. */
   ffmpegPath: string | null
+  /** Check GitHub Releases for a newer version ~10 s after start and every 6 h (installed build downloads it too). */
+  autoCheckUpdates: boolean
 }
 
 export interface EncoderCapabilities {

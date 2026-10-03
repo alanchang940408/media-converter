@@ -69,6 +69,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   preventSleep: true,
   removeFinished: false,
   ffmpegPath: null,
+  autoCheckUpdates: true,
 }
 
 export interface AppState {

@@ -9,7 +9,7 @@ import type {
   VideoCodecId,
   VideoPresetSettings,
 } from '../../../shared/types'
-import { isAudioOnlyContainer } from '../../../shared/videoRules'
+import { dvdStandard, isAudioOnlyContainer } from '../../../shared/videoRules'
 import type { MessageKey, TFunc } from '../i18n'
 
 export const CONTAINER_LABEL: Record<OutputContainer, string> = {
@@ -18,6 +18,9 @@ export const CONTAINER_LABEL: Record<OutputContainer, string> = {
   mkv: 'Matroska (MKV)',
   webm: 'WebM',
   gif: 'GIF',
+  avi: 'AVI',
+  mpg: 'MPEG (MPG)',
+  wmv: 'Windows Media (WMV)',
   mp3: 'MP3',
   m4a: 'M4A (AAC)',
   wav: 'WAV',
@@ -32,6 +35,12 @@ const VIDEO_CODEC_LABEL: Record<VideoCodecId, string> = {
   vp9: 'VP9',
   prores: 'Apple ProRes',
   dnxhr: 'Avid DNxHR',
+  // The part before " (…)" doubles as the short name in preset summaries.
+  mpeg2: 'MPEG-2',
+  mpeg1: 'MPEG-1',
+  mpeg4: 'Xvid (MPEG-4 Part 2)',
+  wmv2: 'WMV2 (Windows Media Video 8)',
+  mjpeg: 'MJPEG (Motion JPEG)',
   gif: 'GIF',
   copy: '',
   none: '',
@@ -43,6 +52,9 @@ const AUDIO_CODEC_LABEL: Record<AudioCodecId, string> = {
   opus: 'Opus',
   pcm: 'PCM',
   flac: 'FLAC',
+  mp2: 'MP2 (MPEG Layer II)',
+  ac3: 'Dolby Digital (AC-3)',
+  wmav2: 'WMA (Windows Media Audio 2)',
   copy: '',
   none: '',
 }
@@ -68,6 +80,8 @@ export function videoSummary(s: VideoPresetSettings, t: TFunc): string {
     return parts.join(' · ')
   }
   parts.push(VIDEO_CODEC_LABEL[s.video.codec] ? VIDEO_CODEC_LABEL[s.video.codec].replace(/ \(.*\)$/, '') : videoCodecLabel(s.video.codec, t))
+  const dvd = dvdStandard(s)
+  if (dvd) parts.push(`DVD ${dvd.toUpperCase()}`)
   if (s.container === 'gif' && s.video.gif) {
     parts.push(`${s.video.gif.width ?? t('common.source')}px`, `${s.video.gif.fps} fps`)
   } else if (s.video.width || s.video.height) {
