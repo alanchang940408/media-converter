@@ -209,11 +209,7 @@
   color: var(--text-3);
 }
 
-/* ───────────── batch rename dialog ───────────── */
-.fo-modal {
-  height: min(820px, 100%);
-}
-
+/* ───────────── batch rename tab ───────────── */
 .fo-body {
   background: var(--bg);
 }
@@ -676,12 +672,6 @@
   white-space: nowrap;
   font-size: var(--fs-xs);
   color: var(--text-3);
-}
-
-.fo-foot-note.warn {
-  color: var(--warning);
-  white-space: normal;
-  line-height: 1.35;
 }
 
 /* preview step */

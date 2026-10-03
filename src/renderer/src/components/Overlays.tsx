@@ -94,7 +94,8 @@ export function DialogHost() {
 
 export function DropOverlay({ visible }: { visible: boolean }) {
   const t = useT()
-  const fileOps = useStore((s) => !!s.fileOps)
+  // drops on the batch rename tab go into its file list (see App's useWindowFileDrop), everywhere else into the queue
+  const fileOps = useStore((s) => s.view === 'batch')
   if (!visible) return null
   return (
     <div className="drop-overlay" aria-hidden>

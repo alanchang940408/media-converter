@@ -170,13 +170,7 @@ export const zhTW: Record<keyof typeof en, string> = {
   'browser.image': '圖片',
   'browser.search': '搜尋預設集',
   'browser.empty': '找不到符合的預設集。',
-  'browser.apply': '套用到選取項目',
   'browser.applied': '已將「{name}」套用到 {n} 個工作',
-  'browser.noTargets': '請先選取相容且尚未開始的工作。',
-  'browser.hintSelectJobs': '在佇列中選取工作，或把預設集拖曳到工作上。',
-  'browser.hintPick': '選擇要套用的預設集。',
-  'browser.willApply': '將套用到 {n} 個工作。',
-  'browser.noCompatible': '這個預設集不適用於選取的工作。',
 
   // ── presets (shared helpers) ──
   'presets.builtIn': '內建預設集',

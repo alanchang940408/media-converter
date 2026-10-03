@@ -170,13 +170,7 @@ export const ja: Record<keyof typeof en, string> = {
   'browser.image': '画像',
   'browser.search': 'プリセットを検索',
   'browser.empty': '一致するプリセットはありません。',
-  'browser.apply': '選択項目に適用',
   'browser.applied': '「{name}」を {n} 件のジョブに適用しました',
-  'browser.noTargets': '先に対応する未処理のジョブを選択してください。',
-  'browser.hintSelectJobs': 'キューでジョブを選択するか、プリセットをジョブにドラッグします。',
-  'browser.hintPick': '適用するプリセットを選択してください。',
-  'browser.willApply': '{n} 件のジョブに適用します。',
-  'browser.noCompatible': 'このプリセットは選択したジョブには使えません。',
 
   // ── presets (shared helpers) ──
   'presets.builtIn': '組み込みプリセット',

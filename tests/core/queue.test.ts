@@ -367,6 +367,9 @@ describe('job execution', () => {
     expect(req.caps.ffmpegVersion).toBe('fake')
     h.ffmpeg.releaseAll()
     await waitFor(allSettled, 3000, 'job to finish')
+    // the PNG is removed in execute()'s `finally`, i.e. just after the job was settled as done: wait for it
+    // instead of checking once (a single check right after "done" raced the async rm under load)
+    await waitFor(() => !existsSync(req.overlay!.pngPath), 3000, 'overlay PNG cleanup')
     expect(existsSync(req.overlay!.pngPath)).toBe(false)
   })
 

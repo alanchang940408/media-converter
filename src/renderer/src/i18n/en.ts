@@ -170,13 +170,7 @@ export const en = {
   'browser.image': 'Image',
   'browser.search': 'Search presets',
   'browser.empty': 'No presets match.',
-  'browser.apply': 'Apply to selected',
   'browser.applied': 'Applied “{name}” to {n} {n|job|jobs}',
-  'browser.noTargets': 'Select compatible queued jobs first.',
-  'browser.hintSelectJobs': 'Select jobs in the queue, or drag a preset onto a job.',
-  'browser.hintPick': 'Pick a preset to apply.',
-  'browser.willApply': 'Will apply to {n} {n|job|jobs}.',
-  'browser.noCompatible': 'This preset doesn’t fit the selected jobs.',
 
   // ── presets (shared helpers) ──
   'presets.builtIn': 'Built-in preset',

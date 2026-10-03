@@ -45,7 +45,6 @@ import {
   guard,
   openEditor,
   openPreview,
-  removeJobs,
   removeJobsConfirm,
   reorderJobs,
   retryJobs,
@@ -143,7 +142,7 @@ function QueueToolbar() {
         {t('queue.addFolder')}
       </Button>
       <span className="tb-sep" />
-      <Button variant="ghost" icon={Trash2} disabled={!sel.length} onClick={() => void removeJobs(selected)} title={`${t('queue.remove')} (Delete)`} className="tb-collapsible">
+      <Button variant="ghost" icon={Trash2} disabled={!sel.length} onClick={() => void removeJobsConfirm(sel.map((j) => j.id))} title={`${t('queue.remove')} (Delete)`} className="tb-collapsible">
         {t('queue.remove')}
       </Button>
       <Button variant="ghost" icon={CopyPlus} disabled={!sel.length} onClick={() => void duplicateJobs(selected)} title={t('queue.duplicateHint')} className="tb-collapsible">
@@ -221,9 +220,13 @@ function JobList() {
       if (view !== 'queue' || isModalOpen() || isTypingTarget(e.target)) return
       const st = useStore.getState()
       if (e.key === 'Delete' || (e.key === 'Backspace' && (e.metaKey || e.ctrlKey))) {
-        if (st.selected.length) {
+        // same single confirmation as the toolbar button and the row ×: the count, and what happens to running jobs
+        const ids = visibleJobs(st.jobs)
+          .filter((j) => st.selected.includes(j.id))
+          .map((j) => j.id)
+        if (ids.length) {
           e.preventDefault()
-          void removeJobs(st.selected)
+          void removeJobsConfirm(ids)
         }
       } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'a') {
         e.preventDefault()
