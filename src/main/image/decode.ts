@@ -1,6 +1,7 @@
 // Source decoding: sharp first, ffmpeg (single frame → PNG) for formats the bundled libvips cannot read.
 import { spawn } from 'node:child_process'
 import { stat } from 'node:fs/promises'
+import { crc32, deflateSync } from 'node:zlib'
 import sharp, { type Metadata, type SharpOptions } from 'sharp'
 import { getFfmpegPaths } from '../ffmpeg/paths'
 import { extOf } from '../../shared/media'
@@ -90,23 +91,58 @@ async function decodeWithFfmpeg(path: string, signal?: AbortSignal): Promise<Buf
   return buf
 }
 
+function pngChunk(type: string, data: Buffer): Buffer {
+  const head = Buffer.alloc(8)
+  head.writeUInt32BE(data.length, 0)
+  head.write(type, 4, 'latin1')
+  const crc = Buffer.alloc(4)
+  crc.writeUInt32BE(crc32(Buffer.concat([head.subarray(4), data])) >>> 0, 0)
+  return Buffer.concat([head, data, crc])
+}
+
+/**
+ * Embed an ICC profile into PNG bytes (iCCP right after IHDR, dropping any sRGB/gAMA/cHRM/iCCP chunks), so sharp
+ * converts the pixels from that profile. ffmpeg's PNG output carries no profile: without this, a Display P3 iPhone
+ * HEIC would be read as sRGB and come out washed out. Returns the input unchanged if it is not a well-formed PNG.
+ */
+export function embedIccInPng(png: Buffer, icc: Buffer): Buffer {
+  const SIG = 8
+  if (png.length < SIG + 25 || png.toString('latin1', 12, 16) !== 'IHDR') return png
+  const parts: Buffer[] = [png.subarray(0, SIG)]
+  let off = SIG
+  while (off + 12 <= png.length) {
+    const len = png.readUInt32BE(off)
+    const type = png.toString('latin1', off + 4, off + 8)
+    const end = off + 12 + len
+    if (end > png.length) return png
+    if (!['iCCP', 'sRGB', 'gAMA', 'cHRM'].includes(type)) parts.push(png.subarray(off, end))
+    if (type === 'IHDR') parts.push(pngChunk('iCCP', Buffer.concat([Buffer.from('ICC Profile\0\0', 'latin1'), deflateSync(icc)])))
+    off = end
+    if (type === 'IEND') break
+  }
+  return Buffer.concat(parts)
+}
+
 /** Open a source image, choosing sharp or the ffmpeg fallback. */
 export async function openSource(path: string, signal?: AbortSignal): Promise<DecodedSource> {
   throwIfAborted(signal)
   const ext = extOf(path)
+  // sharp can often read a file's metadata (incl. its ICC profile) even when it cannot decode the pixels.
+  let sourceMeta: Metadata | null = null
   if (!FFMPEG_ONLY.has(ext)) {
-    let meta: Metadata | null = null
     try {
-      meta = await sharp(path, SHARP_OPTS).metadata()
+      sourceMeta = await sharp(path, SHARP_OPTS).metadata()
     } catch {
-      meta = null
+      sourceMeta = null
     }
     // HEIC (HEVC) is detected by libheif but this libvips build only decodes AV1 (AVIF).
+    const meta = sourceMeta
     if (meta && !(meta.format === 'heif' && meta.compression === 'hevc')) {
       return { path, input: path, viaFfmpeg: false, meta, format: formatName(meta), orientation: meta.orientation ?? 1 }
     }
   }
-  const png = await decodeWithFfmpeg(path, signal)
+  let png = await decodeWithFfmpeg(path, signal)
+  if (sourceMeta?.icc?.length) png = embedIccInPng(png, sourceMeta.icc)
   throwIfAborted(signal)
   const meta = await sharp(png, SHARP_OPTS).metadata()
   return { path, input: png, viaFfmpeg: true, meta, format: ext || 'unknown', orientation: 1 }
