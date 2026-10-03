@@ -21,6 +21,15 @@ export interface MediaInfo {
   pixFmt?: string
   /** Display rotation in degrees from stream side data / EXIF (0, 90, 180, 270). Width/height are already the *displayed* size. */
   rotation?: number
+  /**
+   * Pixel (sample) aspect ratio of non-square-pixel video (DV, HDV, DVD…): displayed ÷ stored width, already inverted
+   * for 90°/270° rotation. Absent = square pixels. When present, width/height are the *displayed* size
+   * (width = round(storageWidth × sampleAspectRatio)) and storageWidth/storageHeight the stored frame.
+   */
+  sampleAspectRatio?: number
+  /** Stored (coded) frame size of non-square-pixel video, after rotation. Absent for square pixels (= width/height). */
+  storageWidth?: number
+  storageHeight?: number
   hasAudio: boolean
   hasAlpha?: boolean
   audioChannels?: number

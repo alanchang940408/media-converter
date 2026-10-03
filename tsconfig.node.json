@@ -27,5 +27,6 @@
     "vite.web.config.ts",
     "vitest.config.ts",
     "playwright.config.ts"
-  ]
+  ],
+  "exclude": ["tests/renderer/**/*"]
 }

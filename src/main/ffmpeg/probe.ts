@@ -40,15 +40,8 @@ const num = (v: unknown): number | undefined => {
   return Number.isFinite(n) ? n : undefined
 }
 
-/**
- * MediaInfo as this engine produces it. `sampleAspectRatio` is an engine-internal extra, deliberately not part of the
- * shared MediaInfo contract: the source's pixel aspect as displayed (display width = width × sampleAspectRatio, already
- * inverted for 90°/270° rotation), present only for non-square pixels (anamorphic DV / HDV / DVD sources). It travels
- * with job.sourceInfo (stored as-is) and is read back by args.ts (sourceSampleAspect).
- */
-export interface ProbedMediaInfo extends MediaInfo {
-  sampleAspectRatio?: number
-}
+/** MediaInfo as this engine produces it (the pixel aspect fields are now part of the shared contract). */
+export type ProbedMediaInfo = MediaInfo
 
 /** "32:27" → 1.185…; undefined for unknown ("0:1", "N/A"), garbage or square (1:1) pixels. */
 export function parseSampleAspect(r?: string): number | undefined {
@@ -125,16 +118,24 @@ export function mapProbe(json: FfprobeOutput, path: string, sizeBytes: number): 
 
   if (video) {
     const rotation = streamRotation(video)
+    const swap = rotation === 90 || rotation === 270
+    const parsedSar = parseSampleAspect(video.sample_aspect_ratio)
+    const sar = parsedSar === undefined ? undefined : swap ? 1 / parsedSar : parsedSar
     const w = video.width
     const h = video.height
     if (w && h) {
-      const swap = rotation === 90 || rotation === 270
-      info.width = swap ? h : w
-      info.height = swap ? w : h
+      const sw = swap ? h : w
+      const sh = swap ? w : h
+      // width/height are what a player shows: rotated, and widened/narrowed by a non-square pixel aspect
+      info.width = sar === undefined ? sw : Math.max(1, Math.round(sw * sar))
+      info.height = sh
+      if (sar !== undefined) {
+        info.storageWidth = sw
+        info.storageHeight = sh
+      }
     }
     info.rotation = rotation
-    const sar = parseSampleAspect(video.sample_aspect_ratio)
-    if (sar !== undefined) info.sampleAspectRatio = rotation === 90 || rotation === 270 ? 1 / sar : sar
+    if (sar !== undefined) info.sampleAspectRatio = sar
     const fps = parseRate(video.avg_frame_rate) ?? parseRate(video.r_frame_rate)
     if (fps !== undefined) info.fps = fps
     info.videoCodec = video.codec_name

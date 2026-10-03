@@ -15,5 +15,5 @@
     "composite": true,
     "noEmit": true
   },
-  "include": ["src/renderer/src/**/*", "src/shared/**/*", "src/preload/*.d.ts"]
+  "include": ["src/renderer/src/**/*", "src/shared/**/*", "src/preload/*.d.ts", "tests/renderer/**/*"]
 }

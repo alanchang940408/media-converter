@@ -7,7 +7,6 @@ import { AUDIO_EXTS, baseNameOf, classifyPath, IMAGE_EXTS, VIDEO_EXTS, WATERMARK
 import type { FileKindFilter, QueueEvent, VideoPresetSettings } from '../shared/types'
 import type { CapabilitiesCache } from './caps'
 import type { FfmpegEngine, ImageEngine } from './contracts'
-import { sourceSampleAspect } from './ffmpeg/args'
 import { t, type I18nKey } from './i18n'
 import type { PresetStore } from './presets/store'
 import { expandPaths, type Queue } from './queue/Queue'
@@ -96,7 +95,7 @@ async function renderPreviewFrame(
   const anamorphic = !!size.sar && Math.abs(size.sar - 1) > 1e-3
   const W = anamorphic ? Math.max(2, Math.round(size.width * size.sar!)) : size.width
   const H = size.height
-  const srcW = anamorphic ? info.width * sourceSampleAspect(info) : info.width
+  const srcW = info.width // already the displayed width for non-square-pixel sources
 
   // decode at (at most) 4K keeping the source aspect, then reproduce the geometry with sharp
   const cap = Math.min(1, 3840 / Math.max(srcW, info.height))

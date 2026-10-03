@@ -139,9 +139,9 @@ describe('DVD-Video watermark is laid out for the displayed frame', () => {
 
 describe('anamorphic sources pick the DVD frame by their displayed aspect', () => {
   it('probe reports the pixel aspect of non-square sources', () => {
-    expect(info[dv43]).toMatchObject({ width: 720, height: 480 })
+    expect(info[dv43]).toMatchObject({ width: 640, height: 480, storageWidth: 720, storageHeight: 480 })
     expect(info[dv43].sampleAspectRatio).toBeCloseTo(8 / 9, 6)
-    expect(info[hdv]).toMatchObject({ width: 1440, height: 1080 })
+    expect(info[hdv]).toMatchObject({ width: 1920, height: 1080, storageWidth: 1440, storageHeight: 1080 })
     expect(info[hdv].sampleAspectRatio).toBeCloseTo(4 / 3, 6)
     expect(info[dark].sampleAspectRatio).toBeUndefined()
   })
@@ -167,6 +167,27 @@ describe('anamorphic sources pick the DVD frame by their displayed aspect', () =
       return sum / m.width
     }
     expect(rowMean(4)).toBeGreaterThan(20) // testsrc2 content, not a black bar
+  })
+})
+
+describe('anamorphic sources become undistorted square-pixel video', () => {
+  for (const [id, w, h] of [['h264-720p', 1280, 720], ['h264-match', 1920, 1080]] as const) {
+    it(`HDV 1440×1080 at 4:3 → ${id}: ${w}×${h} with square pixels (16:9 as shown)`, async () => {
+      expect(ffmpegEngine.computeOutputSize(info[hdv], builtin(id))).toEqual({ width: w, height: h })
+      const { dest } = await encode(`hdv ${id}`, hdv, builtin(id))
+      const s = streamInfo(dest)
+      expect(s).toMatchObject({ width: w, height: h })
+      // absent or 1:1 both mean square pixels
+      expect(['1:1', undefined]).toContain(s.sample_aspect_ratio)
+      expect(Number(s.width) / Number(s.height)).toBeCloseTo(16 / 9, 2)
+    })
+  }
+
+  it('DV 720×480 at 8:9 kept at source size → 640×480 square pixels', async () => {
+    const { dest } = await encode('dv43 match', dv43, builtin('h264-match'))
+    const s = streamInfo(dest)
+    expect(s).toMatchObject({ width: 640, height: 480 })
+    expect(['1:1', undefined]).toContain(s.sample_aspect_ratio)
   })
 })
 

@@ -5,7 +5,7 @@ Desktop batch converter for anyone: an Adobe Media Encoder–style encode queue 
 ## Commands
 - `npm run dev` — Electron app with HMR
 - `npm run dev:web` — renderer only in a browser at http://localhost:5199, backed by `src/renderer/src/mockApi.ts` (no Electron)
-- `npm run typecheck` / `npm test` (vitest, `tests/**`) / `npm run e2e` (Playwright `_electron`, `e2e/**`, needs `npm run build` first)
+- `npm run typecheck` / `npm test` (vitest, `tests/**`; `tests/renderer/**` imports renderer code and is type-checked by `tsconfig.web.json`) / `npm run e2e` (Playwright `_electron`, `e2e/**`, needs `npm run build` first)
 - `npm run fetch-ffmpeg` — download ffmpeg/ffprobe into `resources/bin/<platform>-<arch>/` (bundled into the installer)
 - `npm run dist` — Windows NSIS installer + portable exe into `release/`
 

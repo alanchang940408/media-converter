@@ -1,5 +1,6 @@
 // Small formatting / path helpers for the renderer (no Node imports).
 import type { MediaInfo } from '../../../shared/types'
+import { pictureGeometry, ratioLabel } from '../../../shared/media'
 import type { TFunc } from '../i18n'
 
 export function formatBytes(n?: number | null): string {
@@ -134,7 +135,16 @@ export function sourceInfoLine(info?: MediaInfo, t?: TFunc): string {
     return parts.join(' · ')
   }
   if (info.kind === 'video') {
-    if (info.width && info.height) parts.push(`${info.width}×${info.height}`)
+    if (info.width && info.height) {
+      const g = pictureGeometry(info)
+      const display = `${g.width}×${g.height}`
+      if (g.sar === 1) parts.push(display)
+      else {
+        const stored = `${g.storageWidth}×${g.storageHeight}`
+        const sar = ratioLabel(g.sar)
+        parts.push(t ? t('media.anamorphicSize', { stored, display, sar }) : `${stored} → ${display} (${sar})`)
+      }
+    }
     parts.push(formatDuration(info.durationSec))
     if (info.videoCodec) parts.push(codecLabel(info.videoCodec))
     if (info.fps) parts.push(`${Math.round(info.fps * 100) / 100} fps`)

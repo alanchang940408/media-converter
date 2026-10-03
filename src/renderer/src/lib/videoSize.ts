@@ -1,16 +1,20 @@
 // Output frame size estimate for the UI (mirrors the engine's computeOutputSize rules).
+import { pictureGeometry } from '../../../shared/media'
 import type { MediaInfo, VideoPresetSettings } from '../../../shared/types'
 import { isAudioOnlyContainer } from '../../../shared/videoRules'
 
 const even = (n: number): number => Math.max(2, Math.round(n / 2) * 2)
 
 export function computeVideoOutputSize(
-  info: Pick<MediaInfo, 'width' | 'height'> | undefined,
+  info: Pick<MediaInfo, 'width' | 'height' | 'sampleAspectRatio' | 'storageWidth' | 'storageHeight'> | undefined,
   s: VideoPresetSettings,
 ): { width: number; height: number } | null {
   if (isAudioOnlyContainer(s.container) || s.video.codec === 'none') return null
-  const W = info?.width ?? 1920
-  const H = info?.height ?? 1080
+  // displayed size: non-square-pixel sources (DV, HDV) become square pixels at their displayed aspect
+  const g = info ? pictureGeometry(info) : null
+  const W = g?.width || 1920
+  const H = g?.height || 1080
+  // stream copy keeps the source picture as it is (shown here at its displayed size)
   if (s.video.codec === 'copy') return { width: W, height: H }
   if (s.container === 'gif' && s.video.gif) {
     let gw = s.video.gif.width ?? W

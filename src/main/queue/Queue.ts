@@ -5,7 +5,7 @@ import { existsSync, type Stats } from 'node:fs'
 import { mkdir, readdir, rename, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { basename, dirname, join, relative, resolve } from 'node:path'
-import { baseNameOf, classifyPath, extOf } from '../../shared/media'
+import { baseNameOf, classifyPath, extOf, withDisplaySize } from '../../shared/media'
 import { renderNameTemplate, type NamingVars } from '../../shared/naming'
 import type {
   AddJobsRequest,
@@ -374,6 +374,8 @@ export class Queue {
       : []
     this.meta = data?.meta && typeof data.meta === 'object' ? data.meta : {}
     for (const job of this.jobs) {
+      // jobs saved before MediaInfo carried the displayed size of non-square-pixel sources
+      if (job.sourceInfo) job.sourceInfo = withDisplaySize(job.sourceInfo)
       if (job.status === 'running') {
         if (job.outputPath) this.staleTemps.push(job.outputPath + TEMP_SUFFIX)
         if (job.kind === 'file') this.staleCaseRenames.push({ tmp: caseTempPath(job.source, job.id.slice(0, 8)), source: job.source })

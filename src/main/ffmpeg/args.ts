@@ -9,9 +9,9 @@ import type {
   VideoCodecId,
   VideoPresetSettings,
 } from '../../shared/types'
+import { pictureGeometry, pixelAspect } from '../../shared/media'
 import { DVD_STANDARDS, HW_PRIORITY, dvdStandard, hwEncoderName, isAudioOnlyContainer } from '../../shared/videoRules'
 import type { OutputSize, VideoEncodeRequest } from '../contracts'
-import type { ProbedMediaInfo } from './probe'
 import { fmtSec } from './proc'
 
 export type BuildRequest = Omit<VideoEncodeRequest, 'signal' | 'onProgress' | 'onLog'>
@@ -63,17 +63,17 @@ export const DEFAULT_GIF: GifSettings = { fps: 15, width: null, colors: 256, dit
 
 // ───────────────────────────── pixel aspect ─────────────────────────────
 
-/** Source pixel aspect (displayed ÷ stored width) from ProbedMediaInfo.sampleAspectRatio; 1 when square or unknown. */
-export function sourceSampleAspect(info: Pick<ProbedMediaInfo, 'width' | 'height' | 'sampleAspectRatio'>): number {
-  const sar = info.sampleAspectRatio
-  return typeof sar === 'number' && Number.isFinite(sar) && sar > 0 ? sar : 1
+type Geom = Pick<MediaInfo, 'width' | 'height' | 'sampleAspectRatio' | 'storageWidth' | 'storageHeight'>
+
+/** Source pixel aspect (displayed ÷ stored width) from MediaInfo.sampleAspectRatio; 1 when square or unknown. */
+export function sourceSampleAspect(info: Geom): number {
+  return pixelAspect(info)
 }
 
-/** Displayed aspect ratio of the source picture (width × pixel aspect ÷ height), or null when the size is unknown. */
-export function sourceDisplayAspect(info: Pick<ProbedMediaInfo, 'width' | 'height' | 'sampleAspectRatio'>): number | null {
-  const sw = info.width ?? 0
-  const sh = info.height ?? 0
-  return sw > 0 && sh > 0 ? (sw * sourceSampleAspect(info)) / sh : null
+/** Displayed aspect ratio of the source picture (stored width × pixel aspect ÷ height), or null when the size is unknown. */
+export function sourceDisplayAspect(info: Geom): number | null {
+  const g = pictureGeometry(info)
+  return g.storageWidth > 0 && g.storageHeight > 0 ? (g.storageWidth * g.sar) / g.storageHeight : null
 }
 
 /**
@@ -81,7 +81,7 @@ export function sourceDisplayAspect(info: Pick<ProbedMediaInfo, 'width' | 'heigh
  * judged by its displayed aspect, so anamorphic sources (DV 720×480 at 8:9 = 4:3, HDV 1440×1080 at 4:3 = 16:9) land in
  * the right frame. Unknown size → 16:9.
  */
-export function dvdAspect(info: Pick<ProbedMediaInfo, 'width' | 'height' | 'sampleAspectRatio'>): [number, number] {
+export function dvdAspect(info: Geom): [number, number] {
   const a = sourceDisplayAspect(info)
   return a === null || a > 1.4 ? [16, 9] : [4, 3]
 }
@@ -91,7 +91,7 @@ export function dvdAspect(info: Pick<ProbedMediaInfo, 'width' | 'height' | 'samp
  * chosen 16:9 / 4:3 aspect (NTSC 32/27 · 8/9, PAL 64/45 · 16/15).
  */
 export function dvdOutputSize(
-  info: Pick<ProbedMediaInfo, 'width' | 'height' | 'sampleAspectRatio'>,
+  info: Geom,
   std: 'ntsc' | 'pal',
 ): Required<OutputSize> {
   const { width, height } = DVD_STANDARDS[std]
@@ -120,18 +120,25 @@ export function outputHasVideo(info: MediaInfo, settings: VideoPresetSettings): 
  *   stretch = exactly the box.
  * - noUpscale: no source axis is ever enlarged. For fit/one-side the scale factor is capped at 1; for pad/crop/stretch
  *   the requested box is shrunk proportionally (keeping its aspect) until the content is shown at ≤ 100 %.
- * - copy returns the source size untouched. Everything else is rounded to even numbers ≥ 2.
+ * - sizes follow the source's *displayed* size: non-square-pixel sources (DV, HDV) become square pixels at their
+ *   displayed aspect (HDV 1440×1080 at 4:3 kept at source size → 1920×1080).
+ * - copy returns the source size untouched (stored size + its pixel aspect). Everything else is rounded to even numbers ≥ 2.
  * - DVD-Video (mpeg2 + DVD profile in mpg) is always the standard frame (720×480 NTSC / 720×576 PAL) with non-square
  *   pixels (`sar`, see dvdOutputSize); the picture is letterboxed into it (see dvdFilters).
  */
 export function computeOutputSize(info: MediaInfo, settings: VideoPresetSettings): OutputSize | null {
   if (!outputHasVideo(info, settings)) return null
-  const sw = info.width ?? 0
-  const sh = info.height ?? 0
+  // square-pixel outputs are laid out on the displayed size (anamorphic DV / HDV sources are widened or narrowed)
+  const g = pictureGeometry(info)
+  const sw = g.width
+  const sh = g.height
   const v = settings.video
   const dvd = dvdStandard(settings)
   if (dvd) return dvdOutputSize(info, dvd)
-  if (v.codec === 'copy') return sw && sh ? { width: sw, height: sh } : null
+  if (v.codec === 'copy') {
+    if (!sw || !sh) return null
+    return g.sar === 1 ? { width: sw, height: sh } : { width: g.storageWidth, height: g.storageHeight, sar: g.sar }
+  }
   if (!sw || !sh) {
     // Unknown source size: only a fully specified box is predictable.
     const fixedBox = v.width && v.height && v.codec !== 'gif' && v.scaleMode !== 'fit'
@@ -498,7 +505,7 @@ export function mpegFrameRate(requested: number | null | undefined, source: numb
  * DVD-Video picture: fit the source (by its real display aspect, so anamorphic sources work too) into a 16:9 frame —
  * or 4:3 when the source looks narrower than 1.4:1 (dvdAspect) — stored as 720×480 / 720×576 with non-square pixels.
  */
-export function dvdFilters(info: Pick<ProbedMediaInfo, 'width' | 'height' | 'sampleAspectRatio'>, std: 'ntsc' | 'pal'): string[] {
+export function dvdFilters(info: Geom, std: 'ntsc' | 'pal'): string[] {
   const { width: W, height: H } = DVD_STANDARDS[std]
   const [n, d] = dvdAspect(info)
   const D = `${n}/${d}`
@@ -514,8 +521,9 @@ export function dvdFilters(info: Pick<ProbedMediaInfo, 'width' | 'height' | 'sam
 /** Scale (+pad/crop) filters for the chosen size. Empty when no scaling is needed. */
 export function scaleFilters(info: MediaInfo, settings: VideoPresetSettings, out: OutputSize | null): string[] {
   const v = settings.video
-  const sw = info.width ?? 0
-  const sh = info.height ?? 0
+  const g = pictureGeometry(info)
+  const sw = g.width
+  const sh = g.height
   const W = v.codec !== 'gif' && v.width && v.width > 0 ? even(v.width) : null
   const H = v.codec !== 'gif' && v.height && v.height > 0 ? even(v.height) : null
   if (!out) {
@@ -537,6 +545,20 @@ export function scaleFilters(info: MediaInfo, settings: VideoPresetSettings, out
     return []
   }
   const { width: ow, height: oh } = out
+  if (g.sar !== 1) {
+    // Non-square source pixels: always resample (buildArgs then sets square pixels). ffmpeg's force_original_aspect_ratio
+    // would use the stored aspect, so the fitted / covering content size is computed here from the displayed size.
+    if (v.codec !== 'gif' && W && H && (v.scaleMode === 'pad' || v.scaleMode === 'crop')) {
+      const k = v.scaleMode === 'pad' ? Math.min(ow / sw, oh / sh) : Math.max(ow / sw, oh / sh)
+      const lim = v.scaleMode === 'pad' ? Math.min : Math.max
+      const cw = lim(ow, even(sw * k))
+      const ch = lim(oh, even(sh * k))
+      return v.scaleMode === 'pad'
+        ? [`scale=${cw}:${ch}:flags=lanczos`, `pad=${ow}:${oh}:(ow-iw)/2:(oh-ih)/2:black`]
+        : [`scale=${cw}:${ch}:flags=lanczos`, `crop=${ow}:${oh}`]
+    }
+    return [`scale=${ow}:${oh}:flags=lanczos`]
+  }
   if (v.codec !== 'gif' && W && H && (v.scaleMode === 'pad' || v.scaleMode === 'crop')) {
     if (v.scaleMode === 'pad') {
       // Content already fits exactly (same aspect, same size) → nothing to do.

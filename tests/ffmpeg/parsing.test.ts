@@ -200,13 +200,13 @@ describe('probe mapping', () => {
     expect(parseSampleAspect('4/3')).toBeCloseTo(4 / 3, 12)
     for (const x of ['1:1', '0:1', '0:0', 'N/A', '', 'abc', '-4:3', undefined]) expect(parseSampleAspect(x), String(x)).toBeUndefined()
     const dv = mapProbe(base([{ ...v, width: 720, height: 480, sample_aspect_ratio: '8:9' }, a]), 'dv.avi', 1)
-    expect(dv).toMatchObject({ width: 720, height: 480 })
+    expect(dv).toMatchObject({ width: 640, height: 480, storageWidth: 720, storageHeight: 480 })
     expect(dv.sampleAspectRatio).toBeCloseTo(8 / 9, 12)
     expect(mapProbe(base([{ ...v, sample_aspect_ratio: '1:1' }]), 'sq.mp4', 1)).not.toHaveProperty('sampleAspectRatio')
     expect(mapProbe(base([v]), 'none.mp4', 1)).not.toHaveProperty('sampleAspectRatio')
-    // portrait phone clip stored 1440x1080 at 4:3 and rotated: displayed 1080 wide, pixels 3:4
+    // portrait clip stored 1440x1080 at 4:3 and rotated: stored 1080 wide after rotation, pixels 3:4 → shown 810×1440
     const rot = mapProbe(base([{ ...v, width: 1440, height: 1080, sample_aspect_ratio: '4:3', tags: { rotate: '90' } }]), 'r.mp4', 1)
-    expect(rot).toMatchObject({ width: 1080, height: 1440, rotation: 90 })
+    expect(rot).toMatchObject({ width: 810, height: 1440, storageWidth: 1080, storageHeight: 1440, rotation: 90 })
     expect(rot.sampleAspectRatio).toBeCloseTo(3 / 4, 12)
   })
 

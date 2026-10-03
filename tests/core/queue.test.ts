@@ -2,6 +2,7 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { JsonStore } from '../../src/main/jsonStore'
+import { computeOutputSize } from '../../src/main/ffmpeg/args'
 import { emptyQueue, type PersistedQueue } from '../../src/main/queue/Queue'
 import type { Job, QueueEvent, VideoPreset } from '../../src/shared/types'
 import { EncodeError, makeHarness, makeTempDir, touch, waitFor, type Harness } from './helpers'
@@ -402,6 +403,23 @@ describe('job execution', () => {
     expect(h.image.watermarkCalls[0].opts).toBeUndefined()
   })
 
+  it('anamorphic source (HDV 1440×1080 at 4:3): the watermark is laid out on the displayed 1920×1080 frame', async () => {
+    h = makeHarness(tmp.dir)
+    const real = h.ffmpeg.probe.bind(h.ffmpeg)
+    h.ffmpeg.probe = async (p: string) => ({ ...(await real(p)), width: 1920, height: 1080, storageWidth: 1440, storageHeight: 1080, sampleAspectRatio: 4 / 3 })
+    h.ffmpeg.computeOutputSize = computeOutputSize
+    touch(join(src, 'hdv.mp4'))
+    const { jobs } = await h.queue.addJobs({ paths: [join(src, 'hdv.mp4')], output: { dir: out } })
+    const settings = structuredClone(jobs[0].video!.settings)
+    settings.watermark = { type: 'image', path: 'C:/logo.png', anchor: 'top-left', marginPct: 2, opacity: 1, scalePct: 10 }
+    h.queue.updateJob(jobs[0].id, { video: { settings } })
+    h.queue.start()
+    await waitFor(allSettled, 3000, 'job to finish')
+    expect(h.image.watermarkCalls).toHaveLength(1)
+    expect(h.image.watermarkCalls[0]).toMatchObject({ frameW: 1920, frameH: 1080 })
+    expect(h.image.watermarkCalls[0].opts).toBeUndefined()
+  })
+
   it('does not render a watermark for stream copy', async () => {
     h = makeHarness(tmp.dir)
     touch(join(src, 'clip.mp4'))
@@ -481,6 +499,21 @@ describe('editing the queue', () => {
 })
 
 describe('persistence', () => {
+  it('restored jobs saved with the stored size of an anamorphic source get the displayed size', async () => {
+    h = makeHarness(tmp.dir)
+    touch(join(src, 'dv.avi'))
+    const { jobs } = await h.queue.addJobs({ paths: [join(src, 'dv.avi')], output: { dir: out } })
+    await waitFor(() => !!job(jobs[0].id).sourceInfo, 3000, 'probe')
+    await h.store.flush()
+    const file = join(tmp.dir, 'queue.json')
+    const saved = JSON.parse(readFileSync(file, 'utf8')) as PersistedQueue
+    // the shape written before MediaInfo had storageWidth: stored size + pixel aspect
+    saved.jobs[0].sourceInfo = { ...saved.jobs[0].sourceInfo!, width: 720, height: 480, sampleAspectRatio: 8 / 9 }
+    writeFileSync(file, JSON.stringify(saved))
+    const h2 = makeHarness(tmp.dir, { storeFile: file })
+    expect(h2.queue.getJobs()[0].sourceInfo).toMatchObject({ width: 640, height: 480, storageWidth: 720, storageHeight: 480 })
+  })
+
   it('persists the queue and restores running jobs as queued', async () => {
     h = makeHarness(tmp.dir)
     touch(join(src, 'a.mp4'))
