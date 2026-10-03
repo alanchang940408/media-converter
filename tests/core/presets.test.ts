@@ -199,3 +199,10 @@ describe('file presets in the store', () => {
     expect(() => presets.importJson(bad)).toThrow()
   })
 })
+
+describe('built-in presets survive normalizePreset (save-as-copy / export / import round trip)', () => {
+  it('every built-in preset is accepted', () => {
+    const rejected = BUILTIN_PRESETS.filter((p) => !normalizePreset(structuredClone(p))).map((p) => p.id)
+    expect(rejected).toEqual([])
+  })
+})

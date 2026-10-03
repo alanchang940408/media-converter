@@ -23,7 +23,7 @@ export interface PresetLookup {
 
 const CATEGORIES: PresetCategory[] = ['web', 'social', 'editing', 'archive', 'device', 'gif', 'audio', 'image', 'file', 'custom']
 const FILE_OPERATIONS: FileOperation[] = ['copy', 'move', 'rename']
-const CONTAINERS = ['mp4', 'mov', 'mkv', 'webm', 'gif', 'mp3', 'm4a', 'wav', 'flac', 'ogg']
+const CONTAINERS = ['mp4', 'mov', 'mkv', 'webm', 'gif', 'mpg', 'wmv', 'avi', 'mp3', 'm4a', 'wav', 'flac', 'ogg']
 const IMAGE_FORMATS = ['jpeg', 'png', 'webp', 'avif', 'tiff', 'gif', 'keep']
 const RATE_MODES = ['crf', 'vbr', 'cbr']
 
