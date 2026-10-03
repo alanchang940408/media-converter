@@ -169,6 +169,46 @@ describe('image watermark', () => {
     expect(near(await pixelAt(layer.png, 200, 100), [0, 0, 255, 255], 1)).toBe(true)
   })
 
+  it('non-square output pixels (DVD): laid out on the displayed frame, squeezed to stored pixels', async () => {
+    const sar = 32 / 27 // NTSC 16:9: 720×480 stored, 853⅓×480 displayed
+    const k = 720 / 853
+    const shown = await imageEngine.renderWatermarkLayer(logo({ anchor: 'bottom-right', marginPct: 5 }), 853, 480)
+    const dvd = await imageEngine.renderWatermarkLayer(logo({ anchor: 'bottom-right', marginPct: 5 }), 720, 480, undefined, { sampleAspect: sar })
+    // square logo, 10 % of the displayed width (85 px) → 72 stored px wide, still 85 px tall
+    expect([shown.width, shown.height]).toEqual([85, 85])
+    expect([dvd.width, dvd.height]).toEqual([Math.round(85 * k), 85])
+    expect((dvd.width * sar) / dvd.height).toBeCloseTo(1, 1) // square again on playback
+    // margin (5 % of the shorter displayed side = 24 px) and anchor are kept in displayed pixels
+    expect(dvd.top).toBe(shown.top)
+    expect(dvd.left).toBe(Math.round(shown.left * k))
+    expect(Math.abs((720 - dvd.left - dvd.width) * sar - 24)).toBeLessThanOrEqual(1.5)
+    const meta = await sharp(dvd.png).metadata()
+    expect([meta.width, meta.height]).toEqual([dvd.width, dvd.height])
+    expect(near(await pixelAt(dvd.png, 36, 42), [...RED, 255], 2)).toBe(true)
+
+    // 4:3 NTSC (8:9 pixels) is the other way round: 64 displayed px = 72 stored px
+    const narrow = await imageEngine.renderWatermarkLayer(logo({ anchor: 'top-left', marginPct: 0 }), 720, 480, undefined, { sampleAspect: 8 / 9 })
+    expect([narrow.width, narrow.height, narrow.left, narrow.top]).toEqual([72, 64, 0, 0])
+    // PAL 16:9 (64:45 pixels): laid out on 1024×576
+    const pal = await imageEngine.renderWatermarkLayer(logo({ anchor: 'center', marginPct: 0 }), 720, 576, undefined, { sampleAspect: 64 / 45 })
+    expect([pal.width, pal.height]).toEqual([72, 102])
+    expect([pal.left, pal.top]).toEqual([Math.round(((1024 - 102) / 2) * (720 / 1024)), Math.round((576 - 102) / 2)])
+
+    // text keeps its height (font size is % of the frame height) and is squeezed horizontally
+    const wm = text({ text: 'DVD 浮水印', fontSizePct: 8, background: '#000000' })
+    const tShown = await imageEngine.renderWatermarkLayer(wm, 853, 480)
+    const tDvd = await imageEngine.renderWatermarkLayer(wm, 720, 480, undefined, { sampleAspect: sar })
+    expect(tDvd.height).toBe(tShown.height)
+    expect(tDvd.width).toBe(Math.round(tShown.width * k))
+
+    // square / missing / invalid pixel aspect → the plain layout
+    const plain = await imageEngine.renderWatermarkLayer(logo({}), 720, 480)
+    for (const sampleAspect of [1, 0, -2, Number.NaN, undefined]) {
+      const same = await imageEngine.renderWatermarkLayer(logo({}), 720, 480, undefined, { sampleAspect })
+      expect([same.width, same.height, same.left, same.top], String(sampleAspect)).toEqual([plain.width, plain.height, plain.left, plain.top])
+    }
+  })
+
   it('compositeWatermark returns a JPEG with the watermark drawn', async () => {
     const frame = await sharp({ create: { width: 320, height: 180, channels: 3, background: '#ffffff' } }).png().toBuffer()
     const jpg = await imageEngine.compositeWatermark(frame, logo({ anchor: 'bottom-right', marginPct: 0, scalePct: 25 }))

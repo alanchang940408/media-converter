@@ -24,8 +24,20 @@ export interface EncodeProgress {
   elapsedSec: number
 }
 
+/** Output frame size of a video encode. */
+export interface OutputSize {
+  /** Stored frame size in pixels (even numbers). */
+  width: number
+  height: number
+  /**
+   * Sample (pixel) aspect ratio when the output pixels are not square — DVD-Video (NTSC 16:9 = 32/27, 4:3 = 8/9;
+   * PAL 16:9 = 64/45, 4:3 = 16/15). Displayed width = width × sar. Absent = square pixels.
+   */
+  sar?: number
+}
+
 export interface VideoOverlay {
-  /** PNG with alpha, already sized for the output frame. */
+  /** PNG with alpha, already sized for the output frame (stored pixels — pre-squeezed for non-square-pixel outputs). */
   pngPath: string
   /** Top-left position in output-frame pixels. */
   left: number
@@ -72,8 +84,8 @@ export interface FfmpegEngine {
   detectCapabilities(force?: boolean): Promise<EncoderCapabilities>
   /** File extension (no dot) for the preset's container, e.g. "mp4", "gif", "m4a". */
   outputExtension(settings: VideoPresetSettings): string
-  /** Output frame size after scaling (even numbers), or null for audio-only outputs. */
-  computeOutputSize(info: MediaInfo, settings: VideoPresetSettings): { width: number; height: number } | null
+  /** Output frame size after scaling (even numbers, plus the pixel aspect for DVD-Video), or null for audio-only outputs. */
+  computeOutputSize(info: MediaInfo, settings: VideoPresetSettings): OutputSize | null
   /** Pure: build the ffmpeg argument list (without the ffmpeg binary itself). Also returns the encoder chosen. */
   buildArgs(req: Omit<VideoEncodeRequest, 'signal' | 'onProgress' | 'onLog'>): { args: string[]; encoder: string }
   /**
@@ -139,12 +151,17 @@ export interface ImageEngine {
   }): Promise<{ before: Buffer; beforeMime: string; after: Buffer; afterMime: string; outWidth: number; outHeight: number }>
   /** JPEG thumbnail of an image file fitting maxSize. */
   thumbnail(path: string, maxSize: number): Promise<Buffer>
-  /** Render a watermark positioned for a frame of frameW×frameH (used for video overlays). `vars` fills text tokens. */
+  /**
+   * Render a watermark positioned for a frame of frameW×frameH stored pixels (used for video overlays). `vars` fills
+   * text tokens. `opts.sampleAspect` (the frame's pixel aspect, OutputSize.sar) lays the watermark out for the
+   * *displayed* frame (frameW × sampleAspect wide) and squeezes it back to stored pixels, so it is not stretched on playback.
+   */
   renderWatermarkLayer(
     wm: Watermark,
     frameW: number,
     frameH: number,
     vars?: { name?: string; date?: string },
+    opts?: { sampleAspect?: number },
   ): Promise<WatermarkLayer>
   /** Composite a watermark onto an encoded image buffer (e.g. a video frame for preview). Returns JPEG. */
   compositeWatermark(input: Buffer, wm: Watermark, vars?: { name?: string; date?: string }): Promise<Buffer>

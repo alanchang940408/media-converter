@@ -373,6 +373,35 @@ describe('job execution', () => {
     expect(existsSync(req.overlay!.pngPath)).toBe(false)
   })
 
+  it('DVD output (non-square pixels): the watermark is rendered for the displayed frame', async () => {
+    h = makeHarness(tmp.dir)
+    // what the real engine reports for DVD-Video NTSC 16:9
+    h.ffmpeg.computeOutputSize = () => ({ width: 720, height: 480, sar: 32 / 27 })
+    touch(join(src, 'clip.mp4'))
+    const { jobs } = await h.queue.addJobs({ paths: [join(src, 'clip.mp4')], videoPresetId: 'mpeg2-dvd-ntsc', output: { dir: out } })
+    const settings = structuredClone(jobs[0].video!.settings)
+    settings.watermark = { type: 'image', path: 'C:/logo.png', anchor: 'top-left', marginPct: 2, opacity: 1, scalePct: 10 }
+    h.queue.updateJob(jobs[0].id, { video: { settings } })
+    h.queue.start()
+    await waitFor(allSettled, 3000, 'job to finish')
+    expect(h.image.watermarkCalls).toHaveLength(1)
+    expect(h.image.watermarkCalls[0]).toMatchObject({ frameW: 720, frameH: 480, opts: { sampleAspect: 32 / 27 } })
+    expect(h.ffmpeg.encodes[0].overlay).toMatchObject({ left: 12, top: 34 })
+  })
+
+  it('square-pixel outputs render the watermark without a pixel aspect', async () => {
+    h = makeHarness(tmp.dir)
+    touch(join(src, 'clip.mp4'))
+    const { jobs } = await h.queue.addJobs({ paths: [join(src, 'clip.mp4')], output: { dir: out } })
+    const settings = structuredClone(jobs[0].video!.settings)
+    settings.watermark = { type: 'image', path: 'C:/logo.png', anchor: 'top-left', marginPct: 2, opacity: 1, scalePct: 10 }
+    h.queue.updateJob(jobs[0].id, { video: { settings } })
+    h.queue.start()
+    await waitFor(allSettled, 3000, 'job to finish')
+    expect(h.image.watermarkCalls).toHaveLength(1)
+    expect(h.image.watermarkCalls[0].opts).toBeUndefined()
+  })
+
   it('does not render a watermark for stream copy', async () => {
     h = makeHarness(tmp.dir)
     touch(join(src, 'clip.mp4'))

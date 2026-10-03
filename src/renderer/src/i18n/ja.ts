@@ -155,7 +155,7 @@ export const ja: Record<keyof typeof en, string> = {
   'bar.waiting': 'ジョブを待機中',
   'bar.ready': '開始できます',
   'bar.idle': 'アイドル',
-  'bar.progressCount': '{done} / {total} 件完了',
+  'bar.progressCount': '{done} / {total} 件処理済み',
   'bar.autoStart': '自動開始',
   'bar.autoStartHint': 'ファイルを追加したらすぐに変換を始めます',
   'bar.start': 'キューを開始',

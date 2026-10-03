@@ -6,7 +6,11 @@ import { runCapture } from './proc'
 
 const SOFTWARE_ENCODERS = [
   'libx264', 'libx265', 'libsvtav1', 'libaom-av1', 'libvpx-vp9', 'prores_ks', 'dnxhd', 'gif',
+  // legacy MPG / WMV / AVI video (ffmpeg's native encoders, software only)
+  'mpeg2video', 'mpeg1video', 'mpeg4', 'wmv2', 'mjpeg',
   'aac', 'libmp3lame', 'libopus', 'flac', 'pcm_s16le', 'pcm_s24le',
+  // legacy audio: MPEG-1 Layer II, AC-3, WMA 2
+  'mp2', 'ac3', 'wmav2',
 ]
 
 /** Hardware encoders worth test-encoding: h264/hevc/av1 × every family, plus ProRes on VideoToolbox. */

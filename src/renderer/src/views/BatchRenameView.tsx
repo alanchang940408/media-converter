@@ -127,6 +127,16 @@ export function BatchRenameView({ active }: { active: boolean }) {
   const [ignored, setIgnored] = useState<string[]>([])
   const createdIds = useRef<string[]>([])
   const started = useRef(false)
+  const runStartedAt = useRef(0)
+  /** Undo-journal entry written by the batch shown in the "run" step (renames / moves only). */
+  const [batchUndoId, setBatchUndoId] = useState<string | null>(null)
+  const undoInfo = useStore((s) => s.fileOpUndo)
+  const undone = useStore((s) => (batchUndoId && s.fileOpUndone?.id === batchUndoId ? s.fileOpUndone : null))
+
+  // The journal entry main writes when this batch finishes is the one "Undo" would revert.
+  useEffect(() => {
+    if (step === 'run' && !batchUndoId && undoInfo && undoInfo.finishedAt >= runStartedAt.current) setBatchUndoId(undoInfo.id)
+  }, [step, batchUndoId, undoInfo])
 
   const preset: FilePreset | undefined = filePresets.find((p) => p.id === presetId) ?? filePresets[0]
   const op = preset?.operation ?? 'rename'
@@ -200,6 +210,8 @@ export function BatchRenameView({ active }: { active: boolean }) {
   const run = async (): Promise<void> => {
     setBusy('run')
     started.current = true
+    runStartedAt.current = Date.now()
+    setBatchUndoId(null)
     const ids = createdIds.current
     createdIds.current = []
     // only the previewed jobs run: other queued work stays queued (and the preview stays exact)
@@ -218,6 +230,7 @@ export function BatchRenameView({ active }: { active: boolean }) {
   const newBatch = async (): Promise<void> => {
     const ids = runIds
     setRunIds([])
+    setBatchUndoId(null)
     started.current = false
     setStep('form')
     await discardJobs(ids, true)
@@ -232,11 +245,12 @@ export function BatchRenameView({ active }: { active: boolean }) {
         <h2>{t('fileops.title')}</h2>
         <span className="batch-step">{subtitle}</span>
         <span className="footer-spacer" />
-        <UndoButton />
+        {/* in the result step the footer offers Undo once the batch is done */}
+        {step !== 'run' && <UndoButton />}
       </div>
       <div className={cx('fo-body', 'batch-body', step !== 'form' && 'fo-body-preview')}>
       {step === 'run' ? (
-        <BatchRunPanel ids={runIds} />
+        <BatchRunPanel ids={runIds} undone={undone} />
       ) : step === 'form' ? (
         <div className="fo-form">
           {queueRunning && (
@@ -325,7 +339,7 @@ export function BatchRenameView({ active }: { active: boolean }) {
         ) : step === 'preview' ? (
           <PreviewFooter items={items} created={created} busy={busy} onBack={() => void back()} onRun={() => void run()} />
         ) : (
-          <RunFooter ids={runIds} onNew={() => void newBatch()} />
+          <RunFooter ids={runIds} undone={!!undone} onNew={() => void newBatch()} />
         )}
       </div>
     </div>
@@ -741,7 +755,7 @@ function useBatchJobs(ids: string[]): Job[] {
   }, [jobs, ids])
 }
 
-function BatchRunPanel({ ids }: { ids: string[] }) {
+function BatchRunPanel({ ids, undone }: { ids: string[]; undone: { restored: number; failed: number } | null }) {
   const t = useT()
   const list = useBatchJobs(ids)
   if (!list.length) return <div className="fo-empty-note batch-run-empty">{t('batch.gone')}</div>
@@ -758,27 +772,37 @@ function BatchRunPanel({ ids }: { ids: string[] }) {
         <ProgressBar value={progress / list.length} tone={left ? undefined : c.failed ? 'error' : 'ok'} />
         <span className="batch-run-summary">{t('batch.summary', { done: c.done, failed: c.failed + c.cancelled, skipped: c.skipped, left })}</span>
       </div>
+      {undone && (
+        <div className={cx('issue', undone.failed ? 'issue-warning' : 'issue-info', 'batch-undone')} role="status">
+          {undone.failed ? <TriangleAlert size={14} aria-hidden /> : <Undo2 size={14} aria-hidden />}
+          <span>{undone.failed ? t('batch.undonePartial', { failed: undone.failed }) : t('batch.undone')}</span>
+        </div>
+      )}
       <div className="batch-run-list" role="list" aria-label={t('batch.stepRun')}>
-        {list.slice(0, MAX_ROWS).map((j) => (
-          <div key={j.id} role="listitem" className={cx('batch-run-row', `st-${j.status}`)} title={j.error ? `${j.source}\n${j.error}` : j.source}>
-            <span className="batch-run-name">{fileName(j.source)}</span>
-            <ArrowRight size={12} aria-hidden className="batch-run-arrow" />
-            <span className="batch-run-target">{j.outputPath ? fileName(j.outputPath) : '…'}</span>
-            <span className="batch-run-status">{t(`status.${j.status}` as MessageKey)}</span>
-          </div>
-        ))}
+        {list.slice(0, MAX_ROWS).map((j) => {
+          // after a complete undo every renamed / moved file is back under its old name
+          const restored = !!undone && !undone.failed && j.status === 'done'
+          return (
+            <div key={j.id} role="listitem" className={cx('batch-run-row', `st-${j.status}`, restored && 'is-restored')} title={j.error ? `${j.source}\n${j.error}` : j.source}>
+              <span className="batch-run-name">{fileName(j.source)}</span>
+              <ArrowRight size={12} aria-hidden className="batch-run-arrow" />
+              <span className="batch-run-target">{j.outputPath ? fileName(j.outputPath) : '…'}</span>
+              <span className="batch-run-status">{restored ? t('batch.rowRestored') : t(`status.${j.status}` as MessageKey)}</span>
+            </div>
+          )
+        })}
       </div>
     </div>
   )
 }
 
-function RunFooter({ ids, onNew }: { ids: string[]; onNew: () => void }) {
+function RunFooter({ ids, undone, onNew }: { ids: string[]; undone: boolean; onNew: () => void }) {
   const t = useT()
   const list = useBatchJobs(ids)
   const pending = list.filter((j) => j.status === 'queued' || j.status === 'running').map((j) => j.id)
   return (
     <>
-      <span className="fo-foot-note">{pending.length ? t('batch.runningNote') : t('batch.doneNote')}</span>
+      <span className="fo-foot-note">{pending.length ? t('batch.runningNote') : undone ? t('batch.undoneNote') : t('batch.doneNote')}</span>
       <span className="footer-spacer" />
       {pending.length ? (
         <Button icon={Square} onClick={() => void cancelJobs(pending)}>

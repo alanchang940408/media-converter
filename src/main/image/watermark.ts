@@ -125,12 +125,8 @@ function bakeOpacity(im: RgbaImage, opacity: number): void {
   for (let i = 3; i < im.data.length; i += 4) im.data[i] = Math.round(im.data[i] * o)
 }
 
-export async function renderWatermarkLayer(
-  wm: Watermark,
-  frameW: number,
-  frameH: number,
-  vars?: WatermarkVars,
-): Promise<WatermarkLayer> {
+/** Watermark laid out on a square-pixel frame of frameW×frameH. */
+async function renderSquareLayer(wm: Watermark, frameW: number, frameH: number, vars?: WatermarkVars): Promise<WatermarkLayer> {
   const fw = Math.max(1, Math.round(frameW))
   const fh = Math.max(1, Math.round(frameH))
   const margin = Math.round((clamp(num(wm.marginPct, 0), 0, 50) / 100) * Math.min(fw, fh))
@@ -153,6 +149,43 @@ export async function renderWatermarkLayer(
   }
   const png = await sharp(im.data, { raw: { width: im.width, height: im.height, channels: 4 } }).png().toBuffer()
   return { png, left: pos(fw, im.width, fx), top: pos(fh, im.height, fy), width: im.width, height: im.height }
+}
+
+export interface LayerOptions {
+  /**
+   * Pixel aspect of the target frame (displayed ÷ stored width, e.g. 32/27 for 16:9 NTSC DVD). The watermark is laid
+   * out on the *displayed* frame (round(frameW × sampleAspect) × frameH, so sizes, margins and anchors are what the
+   * viewer sees) and then squeezed horizontally back to stored pixels; playback stretches it back undistorted.
+   */
+  sampleAspect?: number
+}
+
+/**
+ * Watermark layer (PNG with baked opacity) positioned for a frame of frameW×frameH stored pixels. With a non-square
+ * opts.sampleAspect the layer, its size and its position are all in stored pixels of that frame.
+ */
+export async function renderWatermarkLayer(
+  wm: Watermark,
+  frameW: number,
+  frameH: number,
+  vars?: WatermarkVars,
+  opts?: LayerOptions,
+): Promise<WatermarkLayer> {
+  const sar = opts?.sampleAspect
+  if (!(typeof sar === 'number' && Number.isFinite(sar) && sar > 0) || Math.abs(sar - 1) < 1e-3) {
+    return renderSquareLayer(wm, frameW, frameH, vars)
+  }
+  const fw = Math.max(1, Math.round(frameW))
+  const dw = Math.max(1, Math.round(fw * sar)) // displayed frame width
+  const shown = await renderSquareLayer(wm, dw, frameH, vars)
+  const k = fw / dw
+  const width = Math.max(1, Math.min(fw, Math.round(shown.width * k)))
+  const left = Math.min(Math.max(0, Math.round(shown.left * k)), Math.max(0, fw - width))
+  const png =
+    width === shown.width
+      ? shown.png
+      : await sharp(shown.png).resize(width, shown.height, { fit: 'fill', kernel: 'lanczos3' }).png().toBuffer()
+  return { png, left, top: shown.top, width, height: shown.height }
 }
 
 /** Composite a watermark onto an encoded image (e.g. a video frame). Returns JPEG. */

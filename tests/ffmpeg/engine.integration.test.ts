@@ -60,7 +60,8 @@ describe('detectCapabilities', () => {
     expect(caps.ffmpegPath).toBe(paths.ffmpeg)
     expect(caps.ffprobePath).toBe(paths.ffprobe)
     expect(caps.ffmpegVersion).not.toBe('')
-    for (const e of ['libx264', 'libx265', 'libsvtav1', 'libvpx-vp9', 'prores_ks', 'dnxhd', 'gif', 'aac', 'libmp3lame', 'libopus']) {
+    const legacy = ['mpeg2video', 'mpeg1video', 'mpeg4', 'wmv2', 'mjpeg', 'mp2', 'ac3', 'wmav2']
+    for (const e of ['libx264', 'libx265', 'libsvtav1', 'libvpx-vp9', 'prores_ks', 'dnxhd', 'gif', 'aac', 'libmp3lame', 'libopus', ...legacy]) {
       expect(caps.compiledEncoders, e).toContain(e)
     }
     // Every working hw encoder must also be compiled; hw flags follow h264.

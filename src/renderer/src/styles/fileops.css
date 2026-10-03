@@ -1117,6 +1117,16 @@
   color: var(--accent-text);
 }
 
+/* after Undo: the new name no longer exists, the file is back under its old one */
+.batch-run-row.is-restored .batch-run-target {
+  color: var(--text-3);
+  text-decoration: line-through;
+}
+
+.batch-run-row.is-restored .batch-run-status {
+  color: var(--accent-text);
+}
+
 .batch-run-empty {
   padding: 24px;
   text-align: center;

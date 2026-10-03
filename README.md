@@ -193,6 +193,17 @@ node scripts/release.mjs patch --dry-run   # 只檢查、不做任何變更
 
 推送 `v*` 標籤後，GitHub Actions（`.github/workflows/release.yml`）會：確認標籤和 `package.json` 版本一致 → 建立草稿 Release → 在 Windows、macOS、Linux 上分別打包，並用 `electron-builder --publish always` 把安裝版、免安裝版、`latest.yml` 和 `.blockmap` 上傳到草稿 → 全部成功後才把草稿發佈成最新版（已安裝的程式從這時起才會看到更新）。任何一個平台失敗時草稿會留著，可以在 GitHub 上檢查後手動發佈或刪除。electron-builder 上傳時會把檔名裡的空白換成 `-`（例如 `Media-Converter-Setup-0.1.1.exe`）。
 
+**先試跑（dry run）**：手動執行 workflow 預設就是試跑，只打包、不發佈。
+
+```bash
+gh workflow run release.yml -f dry_run=true                         # 只打包 Windows
+gh workflow run release.yml -f dry_run=true -f all_platforms=true   # Windows、macOS、Linux 都打包
+gh run list --workflow release.yml                                  # 找到這次的 run ID
+gh run download <run-id> --name media-converter-windows-dry-run     # 下載安裝版、免安裝版、latest.yml
+```
+
+試跑時用 `electron-builder --publish never` 打包，並檢查 `latest.yml`、安裝版、免安裝版都有產生（和正式發佈時檢查的檔案相同）。這些檔案連同 `.blockmap` 只會上傳成 workflow artifact（保留 30 天），不會建立草稿或正式 Release，已安裝的程式也看不到。macOS runner 的分鐘數以 10 倍計，所以試跑預設跳過 macOS 和 Linux，加 `-f all_platforms=true` 才會一起打包。`-f dry_run=false` 只能用在 `v*` 標籤上（`gh workflow run release.yml --ref v0.1.2 -f dry_run=false`），效果和推送該標籤一樣，會真的發佈；在分支上執行會直接失敗。
+
 > repo 目前是私人的，安裝版在 repo 公開之前檢查更新會得到 404（不會顯示錯誤）。公開後即可正常更新。
 
 ### 專案結構
@@ -399,6 +410,17 @@ node scripts/release.mjs patch --dry-run   # checks only, changes nothing
 `scripts/release.mjs` checks that the working tree is clean and the branch is not behind its upstream, runs `npm version` (bumps `package.json` + `package-lock.json`, commits "vX.Y.Z", tags `vX.Y.Z`) and then `git push --follow-tags`.
 
 The pushed `v*` tag runs `.github/workflows/release.yml`: it checks that the tag matches `package.json`, creates a draft release, builds on Windows, macOS and Linux with `electron-builder --publish always` (uploading the installer, portable exe, `latest.yml` and `.blockmap` files into the draft), and publishes the draft as the latest release only when every build succeeded — installed apps see the update from that moment. If a platform fails, the draft stays for you to inspect and publish or delete by hand. electron-builder uploads the files with `-` instead of spaces in their names (e.g. `Media-Converter-Setup-0.1.1.exe`).
+
+**Dry run first**: a manual run of the workflow is a dry run by default — it builds, it does not publish.
+
+```bash
+gh workflow run release.yml -f dry_run=true                         # Windows only
+gh workflow run release.yml -f dry_run=true -f all_platforms=true   # Windows, macOS and Linux
+gh run list --workflow release.yml                                  # find the run ID
+gh run download <run-id> --name media-converter-windows-dry-run     # installer, portable exe, latest.yml
+```
+
+A dry run packages with `electron-builder --publish never` and checks that `latest.yml`, the installer and the portable exe were produced (the same files the real publish requires). They are uploaded, with the `.blockmap`, as workflow artifacts only (kept 30 days): no draft or release is created and installed apps see nothing. macOS runner minutes count 10×, so dry runs skip macOS and Linux unless you add `-f all_platforms=true`. `-f dry_run=false` only works on a `v*` tag (`gh workflow run release.yml --ref v0.1.2 -f dry_run=false`) and then does exactly what pushing that tag does — it really publishes; on a branch the run fails right away.
 
 > While the repository is private, update checks get a 404 (silently). They work once it is public.
 

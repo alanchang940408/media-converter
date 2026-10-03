@@ -98,6 +98,8 @@ export interface AppState {
   fileOps: { entries: FileOpsEntry[] }
   /** Last move/rename run that can be undone (null when none, or when main does not support it). */
   fileOpUndo: FileOpUndoInfo | null
+  /** The last undo that went through: which journal entry, how many files came back and how many did not. */
+  fileOpUndone: { id: string; restored: number; failed: number } | null
 }
 
 const LS_BROWSER = 'mc-preset-browser-open'
@@ -142,6 +144,7 @@ export const useStore = create<AppState>(() => ({
   dialog: null,
   fileOps: { entries: [] },
   fileOpUndo: null,
+  fileOpUndone: null,
 }))
 
 const set = useStore.setState
@@ -247,8 +250,11 @@ function onQueueEvent(e: QueueEvent): void {
     }))
   } else if (e.type === 'finished') {
     const { done, failed, cancelled, skipped } = e.summary
-    toast(failed ? 'error' : 'success', tNow('toast.queueFinished', { done, failed }), cancelled || skipped ? tNow('toast.queueFinishedExtra', { cancelled, skipped }) : undefined)
-    void refreshFileOpUndo(true)
+    void refreshFileOpUndo(true).then((announced) => {
+      // a run of only renames / moves that all worked: the "Renamed n files · Undo" toast already says it all
+      if (announced && announced.count === done && !failed && !cancelled && !skipped) return
+      toast(failed ? 'error' : 'success', tNow('toast.queueFinished', { done, failed }), cancelled || skipped ? tNow('toast.queueFinishedExtra', { cancelled, skipped }) : undefined)
+    })
   }
 }
 
@@ -472,9 +478,9 @@ let undoToastFor: string | null = null
 
 /**
  * Reload the undo journal info. With `announce`, a run that produced a new journal entry shows a toast with
- * an Undo button. Errors are ignored quietly (older main processes do not have the method).
+ * an Undo button and the entry is returned. Errors are ignored quietly (older main processes do not have the method).
  */
-export async function refreshFileOpUndo(announce: boolean): Promise<void> {
+export async function refreshFileOpUndo(announce: boolean): Promise<FileOpUndoInfo | null> {
   const prev = get().fileOpUndo
   let info: FileOpUndoInfo | null = null
   try {
@@ -487,9 +493,16 @@ export async function refreshFileOpUndo(announce: boolean): Promise<void> {
   // the "Undo" toast only makes sense while that journal entry is still the one main would undo
   if (undoToastId != null && info?.id !== undoToastFor) dismissUndoToast()
   if (announce && info && info.id !== prev?.id) {
-    undoToastId = toast('success', tNow('fileop.undoToast', { n: info.count }), fileOpUndoDetail(info), { label: tNow('fileop.undoAction'), run: () => void undoLastFileOp() })
+    const mixed = info.operations.rename > 0 && info.operations.move > 0
+    const title = mixed ? 'fileop.undoToast' : info.operations.move ? 'fileop.undoToastMoved' : 'fileop.undoToastRenamed'
+    undoToastId = toast('success', tNow(title, { n: info.count }), mixed ? fileOpUndoDetail(info) : undefined, {
+      label: tNow('fileop.undoAction'),
+      run: () => void undoLastFileOp(),
+    })
     undoToastFor = info.id
+    return info
   }
+  return null
 }
 
 function dismissUndoToast(): void {
@@ -511,9 +524,11 @@ export async function undoLastFileOp(): Promise<void> {
   const info = get().fileOpUndo
   if (!info || undoing) return
   const time = new Date(info.finishedAt).toLocaleTimeString(LOCALE_TAGS[selectLocale(get())], { hour: '2-digit', minute: '2-digit' })
+  const mixed = info.operations.rename > 0 && info.operations.move > 0
+  const detail = mixed ? tNow('fileop.undoDetailParen', { detail: fileOpUndoDetail(info) }) : ''
   const ok = await confirmDialog({
     title: tNow('fileop.undoConfirmTitle', { n: info.count }),
-    message: tNow('fileop.undoConfirmBody', { n: info.count, time, detail: fileOpUndoDetail(info) }),
+    message: tNow('fileop.undoConfirmBody', { n: info.count, time, detail }),
     confirmLabel: tNow('fileop.undoConfirm'),
   })
   if (!ok) return
@@ -523,6 +538,7 @@ export async function undoLastFileOp(): Promise<void> {
     const res = await guard(() => api.undoFileOps(), 'fileop.undoFailed')
     if (res) {
       const failed = res.failed.length
+      set({ fileOpUndone: { id: info.id, restored: res.restored, failed } })
       if (!failed) toast('success', tNow('fileop.undoDone', { n: res.restored }))
       else
         toast(

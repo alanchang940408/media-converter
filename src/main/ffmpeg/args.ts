@@ -10,11 +10,21 @@ import type {
   VideoPresetSettings,
 } from '../../shared/types'
 import { DVD_STANDARDS, HW_PRIORITY, dvdStandard, hwEncoderName, isAudioOnlyContainer } from '../../shared/videoRules'
-import type { VideoEncodeRequest } from '../contracts'
+import type { OutputSize, VideoEncodeRequest } from '../contracts'
+import type { ProbedMediaInfo } from './probe'
 import { fmtSec } from './proc'
 
 export type BuildRequest = Omit<VideoEncodeRequest, 'signal' | 'onProgress' | 'onLog'>
 export type HwFamily = Exclude<HwAccel, 'auto' | 'none'>
+
+/** Engine-internal build switches (not part of the FfmpegEngine contract). */
+export interface BuildOptions {
+  /**
+   * MJPEG with the deprecated yuvj422p pixel format instead of yuv422p + an explicit full colour range. Only for
+   * ffmpeg builds older than 7.1, whose format filter has no color_ranges option (the runner retries with this).
+   */
+  legacyMjpeg?: boolean
+}
 
 const EXTENSIONS: Record<OutputContainer, string> = {
   mp4: 'mp4', mov: 'mov', mkv: 'mkv', webm: 'webm', gif: 'gif', mpg: 'mpg', wmv: 'wmv', avi: 'avi',
@@ -51,6 +61,44 @@ export function muxerForSettings(settings: VideoPresetSettings, info?: Pick<Medi
 
 export const DEFAULT_GIF: GifSettings = { fps: 15, width: null, colors: 256, dither: 'sierra2_4a', loop: 0 }
 
+// ───────────────────────────── pixel aspect ─────────────────────────────
+
+/** Source pixel aspect (displayed ÷ stored width) from ProbedMediaInfo.sampleAspectRatio; 1 when square or unknown. */
+export function sourceSampleAspect(info: Pick<ProbedMediaInfo, 'width' | 'height' | 'sampleAspectRatio'>): number {
+  const sar = info.sampleAspectRatio
+  return typeof sar === 'number' && Number.isFinite(sar) && sar > 0 ? sar : 1
+}
+
+/** Displayed aspect ratio of the source picture (width × pixel aspect ÷ height), or null when the size is unknown. */
+export function sourceDisplayAspect(info: Pick<ProbedMediaInfo, 'width' | 'height' | 'sampleAspectRatio'>): number | null {
+  const sw = info.width ?? 0
+  const sh = info.height ?? 0
+  return sw > 0 && sh > 0 ? (sw * sourceSampleAspect(info)) / sh : null
+}
+
+/**
+ * DVD-Video display aspect for a source, as [num, den]: 16:9, or 4:3 when the source *looks* narrower than 1.4:1 —
+ * judged by its displayed aspect, so anamorphic sources (DV 720×480 at 8:9 = 4:3, HDV 1440×1080 at 4:3 = 16:9) land in
+ * the right frame. Unknown size → 16:9.
+ */
+export function dvdAspect(info: Pick<ProbedMediaInfo, 'width' | 'height' | 'sampleAspectRatio'>): [number, number] {
+  const a = sourceDisplayAspect(info)
+  return a === null || a > 1.4 ? [16, 9] : [4, 3]
+}
+
+/**
+ * DVD-Video output: the standard stored frame (720×480 / 720×576) and the pixel aspect that makes it display at the
+ * chosen 16:9 / 4:3 aspect (NTSC 32/27 · 8/9, PAL 64/45 · 16/15).
+ */
+export function dvdOutputSize(
+  info: Pick<ProbedMediaInfo, 'width' | 'height' | 'sampleAspectRatio'>,
+  std: 'ntsc' | 'pal',
+): Required<OutputSize> {
+  const { width, height } = DVD_STANDARDS[std]
+  const [n, d] = dvdAspect(info)
+  return { width, height, sar: (n * height) / (d * width) }
+}
+
 // ───────────────────────────── output size ─────────────────────────────
 
 const even = (x: number): number => Math.max(2, Math.round(x / 2) * 2)
@@ -73,16 +121,16 @@ export function outputHasVideo(info: MediaInfo, settings: VideoPresetSettings): 
  * - noUpscale: no source axis is ever enlarged. For fit/one-side the scale factor is capped at 1; for pad/crop/stretch
  *   the requested box is shrunk proportionally (keeping its aspect) until the content is shown at ≤ 100 %.
  * - copy returns the source size untouched. Everything else is rounded to even numbers ≥ 2.
- * - DVD-Video (mpeg2 + DVD profile in mpg) is always the standard frame (720×480 NTSC / 720×576 PAL); the picture is
- *   letterboxed into it (see dvdFilters).
+ * - DVD-Video (mpeg2 + DVD profile in mpg) is always the standard frame (720×480 NTSC / 720×576 PAL) with non-square
+ *   pixels (`sar`, see dvdOutputSize); the picture is letterboxed into it (see dvdFilters).
  */
-export function computeOutputSize(info: MediaInfo, settings: VideoPresetSettings): { width: number; height: number } | null {
+export function computeOutputSize(info: MediaInfo, settings: VideoPresetSettings): OutputSize | null {
   if (!outputHasVideo(info, settings)) return null
   const sw = info.width ?? 0
   const sh = info.height ?? 0
   const v = settings.video
   const dvd = dvdStandard(settings)
-  if (dvd) return { width: DVD_STANDARDS[dvd].width, height: DVD_STANDARDS[dvd].height }
+  if (dvd) return dvdOutputSize(info, dvd)
   if (v.codec === 'copy') return sw && sh ? { width: sw, height: sh } : null
   if (!sw || !sh) {
     // Unknown source size: only a fully specified box is predictable.
@@ -349,12 +397,20 @@ function dnxhrProfile(p?: string | null): string {
 }
 
 /** Pixel format for the end of the filter chain, or null to let ffmpeg negotiate. */
-export function pixelFormatFor(encoder: string, codec: VideoCodecId, settings: VideoPresetSettings, info: MediaInfo): string | null {
+export function pixelFormatFor(
+  encoder: string,
+  codec: VideoCodecId,
+  settings: VideoPresetSettings,
+  info: MediaInfo,
+  opts: BuildOptions = {},
+): string | null {
   const kind = encKind(encoder)
   const family = hwFamilyOf(encoder)
   if (kind === 'copy' || kind === 'gif' || kind === 'prores_vt') return null
   // Full-range 4:2:2 JPEG frames (editing-friendly chroma); MPEG-1/2/4 and WMV2 fall through to yuv420p.
-  if (kind === 'mjpeg') return 'yuvj422p'
+  // The full range is requested separately (formatFilter + -color_range pc): the yuvj* formats are deprecated and
+  // make swscale warn on every job; they are only used for ffmpeg builds that predate colour-range negotiation.
+  if (kind === 'mjpeg') return opts.legacyMjpeg ? 'yuvj422p' : 'yuv422p'
   if (kind === 'prores_ks') {
     const p = proresProfile(settings.video.profile)
     if (p === '4444' || p === '4444xq') return info.hasAlpha ? 'yuva444p10le' : 'yuv444p10le'
@@ -367,6 +423,15 @@ export function pixelFormatFor(encoder: string, codec: VideoCodecId, settings: V
   const tenBit = !!settings.video.tenBit && (codec === 'hevc' || codec === 'av1' || codec === 'vp9')
   if (tenBit) return family ? 'p010le' : 'yuv420p10le'
   return family === 'qsv' ? 'nv12' : 'yuv420p'
+}
+
+/**
+ * The format filter that ends the video chain. MJPEG also pins the full colour range (JPEG levels): ffmpeg >= 7.1
+ * negotiates it and converts limited-range sources (same picture as the old yuvj422p path, without the deprecation
+ * warning). Older builds reject the color_ranges option, and the runner then retries with opts.legacyMjpeg.
+ */
+export function formatFilter(encoder: string, pix: string, opts: BuildOptions = {}): string {
+  return encKind(encoder) === 'mjpeg' && !opts.legacyMjpeg ? `format=pix_fmts=${pix}:color_ranges=pc` : `format=${pix}`
 }
 
 function profileArgs(encoder: string, codec: VideoCodecId, settings: VideoPresetSettings): string[] {
@@ -386,10 +451,13 @@ function videoCodecArgs(
   encoder: string,
   codec: VideoCodecId,
   settings: VideoPresetSettings,
-  out: { width: number; height: number } | null,
+  out: OutputSize | null,
+  opts: BuildOptions = {},
 ): string[] {
   if (encoder === 'copy') return ['-c:v', 'copy']
   const args = ['-c:v', encoder]
+  // JPEG levels, stated explicitly for the encoder / container (matches the color_ranges=pc frames).
+  if (encoder === 'mjpeg' && !opts.legacyMjpeg) args.push('-color_range', 'pc')
   const dvd = dvdStandard(settings)
   args.push(...speedArgs(encoder, settings.video.speed))
   args.push(...(dvd && encoder === 'mpeg2video' ? dvdRateArgs(settings.video.rate) : rateArgs(encoder, settings.video.rate, out?.height ?? null)))
@@ -428,13 +496,12 @@ export function mpegFrameRate(requested: number | null | undefined, source: numb
 
 /**
  * DVD-Video picture: fit the source (by its real display aspect, so anamorphic sources work too) into a 16:9 frame —
- * or 4:3 when the source is narrower than 1.4:1 — stored as 720×480 / 720×576 with non-square pixels.
+ * or 4:3 when the source looks narrower than 1.4:1 (dvdAspect) — stored as 720×480 / 720×576 with non-square pixels.
  */
-export function dvdFilters(info: Pick<MediaInfo, 'width' | 'height'>, std: 'ntsc' | 'pal'): string[] {
+export function dvdFilters(info: Pick<ProbedMediaInfo, 'width' | 'height' | 'sampleAspectRatio'>, std: 'ntsc' | 'pal'): string[] {
   const { width: W, height: H } = DVD_STANDARDS[std]
-  const sw = info.width ?? 0
-  const sh = info.height ?? 0
-  const D = !sw || !sh || sw / sh > 1.4 ? '16/9' : '4/3'
+  const [n, d] = dvdAspect(info)
+  const D = `${n}/${d}`
   return [
     `scale=w='if(gte(dar,${D}),${W},round(${W}*dar/(${D})/2)*2)':h='if(gte(dar,${D}),round(${H}*(${D})/dar/2)*2,${H})':flags=lanczos`,
     `pad=${W}:${H}:(ow-iw)/2:(oh-ih)/2:black`,
@@ -445,7 +512,7 @@ export function dvdFilters(info: Pick<MediaInfo, 'width' | 'height'>, std: 'ntsc
 // ───────────────────────────── filters ─────────────────────────────
 
 /** Scale (+pad/crop) filters for the chosen size. Empty when no scaling is needed. */
-export function scaleFilters(info: MediaInfo, settings: VideoPresetSettings, out: { width: number; height: number } | null): string[] {
+export function scaleFilters(info: MediaInfo, settings: VideoPresetSettings, out: OutputSize | null): string[] {
   const v = settings.video
   const sw = info.width ?? 0
   const sh = info.height ?? 0
@@ -567,7 +634,7 @@ function audioArgs(settings: VideoPresetSettings, info: MediaInfo): { args: stri
 
 // ───────────────────────────── buildArgs ─────────────────────────────
 
-export function buildArgs(req: BuildRequest): { args: string[]; encoder: string } {
+export function buildArgs(req: BuildRequest, opts: BuildOptions = {}): { args: string[]; encoder: string } {
   const { info, settings, trim, overlay } = req
   const v = settings.video
   const container = settings.container
@@ -615,7 +682,7 @@ export function buildArgs(req: BuildRequest): { args: string[]; encoder: string 
         if (fps && fps > 0) pre.push(`fps=${fps}`)
       }
       if (scaled) pre.push('setsar=1')
-      const pix = pixelFormatFor(encoder, codec, settings, info)
+      const pix = pixelFormatFor(encoder, codec, settings, info, opts)
       const useOverlay = !!overlay
       if (useOverlay) args.push('-i', overlay!.pngPath)
 
@@ -627,17 +694,17 @@ export function buildArgs(req: BuildRequest): { args: string[]; encoder: string 
           const base = pre.length ? `${head}[base];[base]` : head
           graph = `${base}[1:v:0]${ov}`
           if (isGif) graph += `,${gifPaletteChain(v.gif ?? DEFAULT_GIF)}`
-          else if (pix) graph += `,format=${pix}`
+          else if (pix) graph += `,${formatFilter(encoder, pix, opts)}`
         } else {
           graph = `${head}${pre.length ? ',' : ''}${gifPaletteChain(v.gif ?? DEFAULT_GIF)}`
         }
         args.push('-filter_complex', `${graph}[vout]`, '-map', '[vout]')
       } else {
         args.push('-map', '0:V:0')
-        if (pix) pre.push(`format=${pix}`)
+        if (pix) pre.push(formatFilter(encoder, pix, opts))
         if (pre.length) videoArgs.push('-vf', pre.join(','))
       }
-      videoArgs.push(...videoCodecArgs(encoder, codec, settings, out))
+      videoArgs.push(...videoCodecArgs(encoder, codec, settings, out, opts))
       if (isGif) videoArgs.push('-loop', String((v.gif ?? DEFAULT_GIF).loop ?? 0))
     }
   } else {

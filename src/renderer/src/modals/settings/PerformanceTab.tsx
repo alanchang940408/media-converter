@@ -5,18 +5,10 @@ import { api } from '../../api'
 import { guard, refreshCaps, saveSettings, tNow, toast, useStore, useT } from '../../store'
 import type { MessageKey } from '../../i18n'
 import { Button, Segmented, Select, Slider, Spinner, cx } from '../../components/ui'
+import { encoderGroup, encoderLabel, sortEncoders, splitEncoders } from '../../lib/encoders'
 import { InfoLine, SettingGroup, SettingRow } from './parts'
 
 const HW_FAMILIES = ['nvenc', 'qsv', 'amf', 'videotoolbox'] as const
-const HW_SUFFIX = /_(nvenc|qsv|amf|videotoolbox|vaapi|mf)$/
-const AUDIO_ENCODERS = /^(aac|libfdk_aac|libmp3lame|mp3|libopus|opus|flac|alac|pcm_.*|libvorbis|vorbis|ac3|eac3)$/
-
-function splitEncoders(list: string[]): { video: string[]; hw: string[]; audio: string[] } {
-  const hw = list.filter((e) => HW_SUFFIX.test(e))
-  const audio = list.filter((e) => !HW_SUFFIX.test(e) && AUDIO_ENCODERS.test(e))
-  const video = list.filter((e) => !hw.includes(e) && !audio.includes(e))
-  return { video, hw, audio }
-}
 
 export function PerformanceTab() {
   const t = useT()
@@ -160,7 +152,7 @@ function CapsPanel({ caps, loading }: { caps: EncoderCapabilities | null; loadin
         })}
       </div>
       <div className="st-enc">
-        <EncoderLine label={t('settings.workingHw')} list={caps.workingHwEncoders} empty={t('settings.noneDetected')} highlight />
+        <EncoderLine label={t('settings.workingHw')} list={sortEncoders(caps.workingHwEncoders)} empty={t('settings.noneDetected')} highlight />
         <EncoderLine label={t('settings.encVideo')} list={enc.video} empty="—" />
         <EncoderLine label={t('settings.encHw')} list={enc.hw} empty="—" />
         <EncoderLine label={t('settings.encAudio')} list={enc.audio} empty="—" />
@@ -170,12 +162,28 @@ function CapsPanel({ caps, loading }: { caps: EncoderCapabilities | null; loadin
   )
 }
 
+/**
+ * One row of encoders: friendly name first, then FFmpeg's encoder name (what a custom FFmpeg must provide).
+ * GPU encoders read "HEVC · NVENC" already, so their raw name (hevc_nvenc) is only in the tooltip.
+ */
 function EncoderLine({ label, list, empty, highlight }: { label: string; list: string[]; empty: string; highlight?: boolean }) {
   return (
     <div className="st-enc-line">
       <span className="st-enc-label">{label}</span>
       <span className="st-codes">
-        {list.length ? list.map((e) => <code key={e} className={cx(highlight && 'hl')}>{e}</code>) : <span className="muted">{empty}</span>}
+        {list.length ? (
+          list.map((e) => {
+            const name = encoderLabel(e)
+            return (
+              <span key={e} className={cx('st-enc-chip', highlight && 'hl')} title={e}>
+                {name}
+                {name !== e && encoderGroup(e) !== 'hw' && <code>{e}</code>}
+              </span>
+            )
+          })
+        ) : (
+          <span className="muted">{empty}</span>
+        )}
       </span>
     </div>
   )

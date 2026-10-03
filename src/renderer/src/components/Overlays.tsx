@@ -60,6 +60,7 @@ export function DialogHost() {
     <Modal
       title={d.title}
       size="sm"
+      className="dialog-modal"
       onClose={() => closeDialog(d.kind === 'prompt' ? null : false)}
       footer={
         <>

@@ -9,6 +9,7 @@ import {
   type ImageEngine,
   type ImageProcessRequest,
   type ImageProcessResult,
+  type OutputSize,
   type VideoEncodeRequest,
   type VideoEncodeResult,
   type WatermarkLayer,
@@ -91,7 +92,7 @@ export class FakeFfmpeg implements FfmpegEngine {
     return s.container
   }
 
-  computeOutputSize(info: MediaInfo, s: VideoPresetSettings): { width: number; height: number } | null {
+  computeOutputSize(info: MediaInfo, s: VideoPresetSettings): OutputSize | null {
     if (isAudioOnlyContainer(s.container) || !info.width || !info.height) return null
     return { width: s.video.width ?? info.width, height: s.video.height ?? info.height }
   }
@@ -139,7 +140,7 @@ export class FakeImage implements ImageEngine {
   failWith: Error | null = null
   readonly processed: ImageProcessRequest[] = []
   readonly pending: Pending<ImageProcessRequest>[] = []
-  readonly watermarkCalls: { frameW: number; frameH: number; vars?: { name?: string; date?: string } }[] = []
+  readonly watermarkCalls: { frameW: number; frameH: number; vars?: { name?: string; date?: string }; opts?: { sampleAspect?: number } }[] = []
   result = { width: 400, height: 300 }
   /** EXIF taken times by file name (base name with extension); readTakenAt() answers from here. */
   takenAt: Record<string, number> = {}
@@ -193,8 +194,14 @@ export class FakeImage implements ImageEngine {
     return Buffer.from('THUMB')
   }
 
-  async renderWatermarkLayer(_wm: unknown, frameW: number, frameH: number, vars?: { name?: string; date?: string }): Promise<WatermarkLayer> {
-    this.watermarkCalls.push({ frameW, frameH, vars })
+  async renderWatermarkLayer(
+    _wm: unknown,
+    frameW: number,
+    frameH: number,
+    vars?: { name?: string; date?: string },
+    opts?: { sampleAspect?: number },
+  ): Promise<WatermarkLayer> {
+    this.watermarkCalls.push({ frameW, frameH, vars, opts })
     return { png: Buffer.from('PNGDATA'), left: 12, top: 34, width: 100, height: 50 }
   }
 

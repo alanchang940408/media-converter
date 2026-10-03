@@ -1010,6 +1010,15 @@
   color: var(--warning);
 }
 
+.issue-info {
+  background: var(--accent-soft);
+  color: var(--text);
+}
+
+.issue-info svg {
+  color: var(--accent-text);
+}
+
 /* ───────────── anchor grid ───────────── */
 .anchor-grid {
   display: grid;
@@ -1260,6 +1269,12 @@
 
 .modal-footer .footer-spacer {
   flex: 1;
+}
+
+/* Confirm / prompt dialogs: the title is the question, so it wraps instead of being cut off. */
+.dialog-modal .modal-titles h2 {
+  white-space: normal;
+  text-wrap: pretty;
 }
 
 .dialog-message {

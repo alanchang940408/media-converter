@@ -30,6 +30,10 @@ export const uxEn = {
   'batch.newBatch': 'New batch',
   'batch.newBatchHint': 'Clear this batch and choose files for the next one',
   'batch.gone': 'The jobs of this batch are no longer in the list.',
+  'batch.undone': 'This batch was undone — the files have their old names and locations back.',
+  'batch.undonePartial': 'This batch was undone, but {failed} {failed|file|files} could not be restored.',
+  'batch.undoneNote': 'Undone. “New batch” starts over with an empty list.',
+  'batch.rowRestored': 'Restored',
 }
 
 export const uxZhTW: Record<keyof typeof uxEn, string> = {
@@ -47,7 +51,7 @@ export const uxZhTW: Record<keyof typeof uxEn, string> = {
   'editor.appliedMany': '已套用到 {n} 個工作',
   'editor.groupNote': '這些設定和輸出位置會套用到選取的 {n} 個同類型工作。剪輯範圍不會複製，各工作保留自己的設定。',
   'editor.groupSkipped': '選取中有 {n} 個工作正在處理、已完成或類型不同，會略過。',
-  'watch.existingAsk': '這個資料夾裡已經有 {n} 個可轉換的檔案，要一起轉換嗎？',
+  'watch.existingAsk': '資料夾裡已有 {n} 個可轉換的檔案，要一起轉換嗎？',
   'watch.existingAskBody': '選「只轉換之後放進來的」的話，資料夾裡現有的檔案不會被處理。之後隨時可以在監看卡片上更改。',
   'watch.existingAll': '一起轉換',
   'watch.existingNewOnly': '只轉換之後放進來的',
@@ -61,6 +65,10 @@ export const uxZhTW: Record<keyof typeof uxEn, string> = {
   'batch.newBatch': '開始新的一批',
   'batch.newBatchHint': '清掉這一批，選擇下一批要處理的檔案',
   'batch.gone': '這一批的工作已經不在清單中。',
+  'batch.undone': '這一批已復原，檔案都改回原本的檔名與位置了。',
+  'batch.undonePartial': '這一批已復原，但有 {failed} 個檔案無法復原。',
+  'batch.undoneNote': '已復原。按「開始新的一批」會清空清單重新開始。',
+  'batch.rowRestored': '已復原',
 }
 
 export const uxJa: Record<keyof typeof uxEn, string> = {
@@ -82,7 +90,7 @@ export const uxJa: Record<keyof typeof uxEn, string> = {
   'watch.existingAskBody': '「今後追加されたファイルだけ」を選ぶと、フォルダーに今あるファイルは処理しません。あとから監視カードでいつでも変更できます。',
   'watch.existingAll': '一緒に変換する',
   'watch.existingNewOnly': '今後追加されたファイルだけ',
-  'watch.existingLabel': 'フォルダー内の既存ファイル',
+  'watch.existingLabel': '既存のファイル',
   'watch.existingOffHint': '監視を始める前からフォルダーにあったファイルは処理せず、新しく追加されたファイルだけを変換します。',
   'nav.batch': '一括リネーム',
   'batch.stepRun': '今回の実行結果',
@@ -92,4 +100,8 @@ export const uxJa: Record<keyof typeof uxEn, string> = {
   'batch.newBatch': '新しい一括処理',
   'batch.newBatchHint': 'この一括処理をクリアして、次に処理するファイルを選びます',
   'batch.gone': 'この一括処理のジョブはもうリストにありません。',
+  'batch.undone': 'この一括処理を元に戻しました。ファイルは元の名前と場所に戻っています。',
+  'batch.undonePartial': 'この一括処理を元に戻しましたが、{failed} 個のファイルは戻せませんでした。',
+  'batch.undoneNote': '元に戻しました。「新しい一括処理」でリストを空にして始め直せます。',
+  'batch.rowRestored': '復元済み',
 }

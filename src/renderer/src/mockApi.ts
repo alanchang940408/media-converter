@@ -374,6 +374,11 @@ function vs(container: OutputContainer, video: Partial<VS['video']>, audio: Part
   return { ...d, container, video: { ...d.video, ...video }, audio: { ...d.audio, ...audio }, ...extra }
 }
 
+/** Legacy containers (MPG / WMV / AVI), as in main's built-ins: CPU encoders ('auto' resolves to software), no faststart. */
+function legacy(container: 'mpg' | 'wmv' | 'avi', video: Partial<VS['video']>, audio: Partial<VS['audio']>): VS {
+  return vs(container, { rate: { mode: 'crf', crf: 20 }, ...video }, audio, { faststart: false })
+}
+
 function vp(
   id: string,
   category: VideoPreset['category'],
@@ -461,6 +466,39 @@ function builtInPresets(): Preset[] {
     vp('builtin-device-tv', 'device', ['Smart TV / media player', '智慧電視／播放器', 'スマート TV / メディアプレーヤー'],
       ['H.264 High profile 1080p for TVs and USB playback.', 'H.264 High 1080p，適合電視與 USB 播放。', 'テレビや USB 再生向け H.264 High 1080p。'],
       vs('mp4', { width: 1920, height: 1080, profile: 'high', fps: 30 })),
+    // Legacy formats (MPG / WMV / AVI): software encoders only, no faststart; same ids as main's built-ins.
+    vp('mpeg2-dvd-ntsc', 'device', ['DVD MPEG-2 (NTSC)', 'DVD MPEG-2（NTSC）', 'DVD MPEG-2（NTSC）'],
+      ['DVD-Video compliant MPEG-2: 720×480, 29.97 fps, Dolby Digital audio. For DVD authoring and players in North America, Japan and Taiwan.',
+        '符合 DVD 規格的 MPEG-2：720×480、29.97 fps、杜比數位音訊。適用台灣、日本、北美的 DVD 燒錄軟體與播放機。',
+        'DVD-Video 規格準拠の MPEG-2（720×480・29.97 fps・ドルビーデジタル音声）。日本・北米・台湾の DVD オーサリングやプレーヤー向け。'],
+      legacy('mpg', { codec: 'mpeg2', profile: 'dvd-ntsc', rate: { mode: 'vbr', bitrateKbps: 6000, maxKbps: 9000 }, width: 720, height: 480, scaleMode: 'pad', noUpscale: false, fps: 29.97 },
+        { codec: 'ac3', bitrateKbps: 192, sampleRate: 48000 })),
+    vp('mpeg2-dvd-pal', 'device', ['DVD MPEG-2 (PAL)', 'DVD MPEG-2（PAL）', 'DVD MPEG-2（PAL）'],
+      ['DVD-Video compliant MPEG-2: 720×576, 25 fps, Dolby Digital audio. For PAL regions such as Europe, China, Hong Kong and Australia.',
+        '符合 DVD 規格的 MPEG-2：720×576、25 fps、杜比數位音訊。適用歐洲、中國、香港、澳洲等 PAL 地區。',
+        'DVD-Video 規格準拠の MPEG-2（720×576・25 fps・ドルビーデジタル音声）。ヨーロッパ・中国・香港・オーストラリアなど PAL 地域向け。'],
+      legacy('mpg', { codec: 'mpeg2', profile: 'dvd-pal', rate: { mode: 'vbr', bitrateKbps: 6000, maxKbps: 9000 }, width: 720, height: 576, scaleMode: 'pad', noUpscale: false, fps: 25 },
+        { codec: 'ac3', bitrateKbps: 192, sampleRate: 48000 })),
+    vp('mpeg2-1080p', 'device', ['MPEG-2 1080p (MPG)', 'MPEG-2 1080p（MPG）', 'MPEG-2 1080p（MPG）'],
+      ['High-definition MPEG-2 (about 20 Mbps) with MP2 audio, fits 1920×1080. For TVs, players and older editing software that only take MPEG-2.',
+        '高畫質 MPEG-2（約 20 Mbps）＋ MP2 音訊，1920×1080 以內。適合只支援 MPEG-2 的電視、播放機與舊版剪輯軟體。',
+        '高画質 MPEG-2（約 20 Mbps）＋ MP2 音声、1920×1080 以内。MPEG-2 しか扱えないテレビ・プレーヤー・古い編集ソフト向け。'],
+      legacy('mpg', { codec: 'mpeg2', rate: { mode: 'vbr', bitrateKbps: 20000, maxKbps: 25000 }, width: 1920, height: 1080 }, { codec: 'mp2', bitrateKbps: 256 })),
+    vp('wmv-720p', 'device', ['WMV 720p', 'WMV 720p', 'WMV 720p'],
+      ['Windows Media video (WMV8 codec) for older Windows PCs, Windows Media Player and PowerPoint. Fits 1280×720.',
+        'Windows Media 影片（WMV8 編碼），適合舊版 Windows、Windows Media Player 與 PowerPoint。1280×720 以內。',
+        'Windows Media 動画（WMV8 コーデック）。古い Windows・Windows Media Player・PowerPoint 向け。1280×720 以内。'],
+      legacy('wmv', { codec: 'wmv2', width: 1280, height: 720 }, { codec: 'wmav2', bitrateKbps: 160 })),
+    vp('avi-xvid-720p', 'device', ['AVI Xvid 720p', 'AVI Xvid 720p', 'AVI Xvid 720p'],
+      ['Xvid-compatible MPEG-4 with MP3 audio in AVI, for older DivX / Xvid players and TVs. Fits 1280×720.',
+        'Xvid 相容的 MPEG-4 ＋ MP3 音訊（AVI），適合支援 DivX / Xvid 的舊型播放機與電視。1280×720 以內。',
+        'Xvid 互換の MPEG-4 ＋ MP3 音声（AVI）。DivX / Xvid 対応の古いプレーヤーやテレビ向け。1280×720 以内。'],
+      legacy('avi', { codec: 'mpeg4', width: 1280, height: 720 }, { codec: 'mp3', bitrateKbps: 192 })),
+    vp('avi-mjpeg', 'editing', ['AVI Motion JPEG (MJPEG)', 'AVI Motion JPEG（MJPEG）', 'AVI Motion JPEG（MJPEG）'],
+      ['Every frame is a separate JPEG, so even older editing software scrubs and cuts it smoothly. Uncompressed PCM audio, source size. Large files.',
+        '每一格都是獨立的 JPEG，舊版剪輯軟體也能流暢拖曳與剪接；無壓縮 PCM 音訊，保留原始尺寸。檔案很大。',
+        '全フレームが独立した JPEG なので、古い編集ソフトでもスムーズにスクラブ・カットできます。非圧縮 PCM 音声、元のサイズ。サイズは大きめ。'],
+      legacy('avi', { codec: 'mjpeg', rate: { mode: 'crf', crf: 18 } }, { codec: 'pcm', bitrateKbps: null })),
     vp('builtin-gif-480', 'gif', ['Animated GIF 480 px', '動態 GIF 480 px', 'アニメーション GIF 480 px'],
       ['Looping GIF for chats and documents.', '循環播放的 GIF，適合聊天與文件。', 'チャットや資料向けのループ GIF。'],
       vs('gif', { codec: 'gif', hw: 'none', gif: { fps: 12, width: 480, colors: 256, dither: 'sierra2_4a', loop: 0 } }, { codec: 'none' }, { faststart: false })),
@@ -597,52 +635,123 @@ function navigatorLocale(): Locale {
 
 // ───────────────────────────── updates ─────────────────────────────
 
+/** package.json "version" of this build; the real app reports app.getVersion(). */
+const MOCK_VERSION = '0.1.0'
+const MOCK_NEW_VERSION = '0.2.0'
+const RELEASES_URL = 'https://github.com/alan940408/media-converter/releases'
+
+type UpdateDemo = 'none' | 'new' | 'downloaded' | 'portable' | 'manual' | 'error' | 'disabled'
+
 /**
- * Update methods of the mock. Default: installed build, "Check for updates" finds nothing.
- * Demo the bars with ?update=downloaded (installed build, update ready) or ?update=portable (portable, new version out).
+ * Update methods of the mock, following src/main/updater.ts: automatic checks ~10 s after start (while
+ * settings.autoCheckUpdates is on; switching it back on schedules one), "Check for updates" works either way,
+ * nothing is checked while an update is downloading / downloaded, and failures end in status 'error'.
+ * Default: installed build that is up to date. Demo other cases with ?update=
+ *   new        installed build, a check finds 0.2.0 and downloads it (progress → "Restart now")
+ *   downloaded installed build, 0.2.0 already downloaded
+ *   portable   portable exe, 0.2.0 is out (download from the release page)
+ *   manual     other packaged platforms, same as portable
+ *   error      every check fails (offline)
+ *   disabled   development build: no checks at all
  */
-function mockUpdates(): Pick<MediaApi, 'getUpdateState' | 'checkForUpdates' | 'installUpdateNow' | 'openReleasePage' | 'onUpdateEvent'> {
-  const demo = typeof location !== 'undefined' ? new URLSearchParams(location.search).get('update') : null
-  const releaseUrl = 'https://github.com/alan940408/media-converter/releases/latest'
+function mockUpdates(autoCheck: () => boolean): {
+  methods: Pick<MediaApi, 'getUpdateState' | 'checkForUpdates' | 'installUpdateNow' | 'openReleasePage' | 'onUpdateEvent'>
+  /** settings.autoCheckUpdates changed */
+  onAutoCheckChanged: () => void
+} {
+  const param = typeof location !== 'undefined' ? new URLSearchParams(location.search).get('update') : null
+  const demo: UpdateDemo = (['new', 'downloaded', 'portable', 'manual', 'error', 'disabled'] as const).find((d) => d === param) ?? 'none'
+  const mode: UpdateState['mode'] = demo === 'disabled' ? 'disabled' : demo === 'portable' || demo === 'manual' ? demo : 'auto'
   let state: UpdateState =
     demo === 'downloaded'
-      ? { mode: 'auto', status: 'downloaded', currentVersion: '0.1.0', version: '0.2.0', percent: 100, lastCheckedAt: Date.now() }
-      : demo === 'portable'
-        ? { mode: 'portable', status: 'available', currentVersion: '0.1.0', version: '0.2.0', url: releaseUrl, lastCheckedAt: Date.now() }
-        : { mode: 'auto', status: 'idle', currentVersion: '0.1.0' }
+      ? { mode, status: 'downloaded', currentVersion: MOCK_VERSION, version: MOCK_NEW_VERSION, percent: 100, lastCheckedAt: Date.now() - 3_600_000 }
+      : { mode, status: mode === 'disabled' ? 'disabled' : 'idle', currentVersion: MOCK_VERSION }
   const listeners = new Set<(e: UpdateEvent) => void>()
-  const emit = (e: UpdateEvent): void => listeners.forEach((cb) => cb(e))
+  type Payload = UpdateEvent extends infer E ? (E extends unknown ? Omit<E, 'state'> : never) : never
+  const setState = (patch: Partial<UpdateState>, event?: Payload): void => {
+    state = { ...state, ...patch }
+    for (const k of Object.keys(state) as (keyof UpdateState)[]) if (state[k] === undefined) delete state[k]
+    if (event) for (const cb of listeners) cb({ ...event, state: clone(state) } as UpdateEvent)
+  }
+  let inflight: Promise<UpdateState> | null = null
+  let timer: ReturnType<typeof setTimeout> | null = null
+
+  const download = async (): Promise<void> => {
+    for (let p = 0; p <= 100; p += 4) {
+      await delay(180)
+      setState({ status: 'downloading', percent: p }, { type: 'downloading', percent: p })
+    }
+    setState({ status: 'downloaded', percent: 100 }, { type: 'downloaded', version: MOCK_NEW_VERSION })
+  }
+
+  const run = async (): Promise<void> => {
+    setState({ status: 'checking', error: undefined }, { type: 'checking' })
+    await delay(900)
+    const now = Date.now()
+    if (demo === 'error') {
+      const error = { kind: 'network' as const, message: 'net::ERR_INTERNET_DISCONNECTED' }
+      setState({ status: 'error', error, percent: undefined, lastCheckedAt: now }, { type: 'error', message: error.message })
+    } else if (demo === 'new') {
+      setState({ status: 'available', version: MOCK_NEW_VERSION, percent: undefined, url: undefined, lastCheckedAt: now }, { type: 'available', version: MOCK_NEW_VERSION, portable: false })
+      void download()
+    } else if (mode === 'portable' || mode === 'manual') {
+      const url = `${RELEASES_URL}/tag/v${MOCK_NEW_VERSION}`
+      setState({ status: 'available', version: MOCK_NEW_VERSION, url, lastCheckedAt: now }, { type: 'available', version: MOCK_NEW_VERSION, portable: true, url })
+    } else {
+      setState({ status: 'not-available', version: undefined, url: undefined, percent: undefined, lastCheckedAt: now }, { type: 'not-available' })
+    }
+  }
+
+  const check = (manual: boolean): Promise<UpdateState> => {
+    if (mode === 'disabled') return Promise.resolve(clone(state))
+    if (!manual && !autoCheck()) return Promise.resolve(clone(state))
+    if (state.status === 'downloading' || state.status === 'downloaded') return Promise.resolve(clone(state))
+    if (inflight) return inflight
+    const p = run()
+      .then(() => clone(state))
+      .finally(() => {
+        if (inflight === p) inflight = null
+      })
+    inflight = p
+    return p
+  }
+
+  const schedule = (): void => {
+    if (timer) clearTimeout(timer)
+    timer = null
+    if (mode === 'disabled' || !autoCheck()) return
+    timer = setTimeout(() => {
+      timer = null
+      void check(false)
+    }, 10_000)
+  }
+  schedule()
+
   return {
-    async getUpdateState(): Promise<UpdateState> {
-      return clone(state)
+    methods: {
+      async getUpdateState(): Promise<UpdateState> {
+        return clone(state)
+      },
+      checkForUpdates(): Promise<UpdateState> {
+        return check(true)
+      },
+      async installUpdateNow(): Promise<void> {
+        if (mode !== 'auto' || state.status !== 'downloaded') return
+        await delay(200)
+        window.location.reload()
+      },
+      async openReleasePage(): Promise<void> {
+        const url = state.url ?? (state.version ? `${RELEASES_URL}/tag/v${state.version}` : `${RELEASES_URL}/latest`)
+        window.open(url, '_blank', 'noopener')
+      },
+      onUpdateEvent(cb: (e: UpdateEvent) => void): () => void {
+        listeners.add(cb)
+        return () => {
+          listeners.delete(cb)
+        }
+      },
     },
-    async checkForUpdates(): Promise<UpdateState> {
-      if (state.status === 'downloaded' || state.status === 'downloading') return clone(state)
-      state = { ...state, status: 'checking' }
-      emit({ type: 'checking', state: clone(state) })
-      await delay(900)
-      if (state.mode === 'portable') {
-        state = { ...state, status: 'available', lastCheckedAt: Date.now() }
-        emit({ type: 'available', version: state.version ?? '0.2.0', portable: true, url: state.url, state: clone(state) })
-      } else {
-        state = { ...state, status: 'not-available', lastCheckedAt: Date.now() }
-        emit({ type: 'not-available', state: clone(state) })
-      }
-      return clone(state)
-    },
-    async installUpdateNow(): Promise<void> {
-      await delay(200)
-      window.location.reload()
-    },
-    async openReleasePage(): Promise<void> {
-      window.open(state.url ?? releaseUrl, '_blank', 'noopener')
-    },
-    onUpdateEvent(cb: (e: UpdateEvent) => void): () => void {
-      listeners.add(cb)
-      return () => {
-        listeners.delete(cb)
-      }
-    },
+    onAutoCheckChanged: schedule,
   }
 }
 
@@ -651,6 +760,7 @@ function mockUpdates(): Pick<MediaApi, 'getUpdateState' | 'checkForUpdates' | 'i
 export function createMockApi(): MediaApi {
   let presets: Preset[] = [...builtInPresets(), ...builtInFilePresets(), ...userPresets()]
   let settings = loadSettings()
+  const updates = mockUpdates(() => settings.autoCheckUpdates !== false)
   let running = true
   let jobs: Job[] = []
   let watchFolders: WatchFolder[] = [
@@ -1155,7 +1265,7 @@ export function createMockApi(): MediaApi {
     async getAppInfo(): Promise<AppInfo> {
       return {
         name: 'Media Converter',
-        version: '0.1.0',
+        version: MOCK_VERSION,
         platform: 'win32',
         arch: 'x64',
         locale: navigatorLocale(),
@@ -1173,7 +1283,9 @@ export function createMockApi(): MediaApi {
         ffmpegVersion: '8.1.2-full_build-www.gyan.dev',
         ffmpegSource: settings.ffmpegPath ? 'custom' : 'system',
         compiledEncoders: [
-          'libx264', 'libx265', 'libsvtav1', 'libaom-av1', 'libvpx-vp9', 'prores_ks', 'dnxhd', 'gif', 'aac', 'libmp3lame', 'libopus', 'flac', 'pcm_s16le',
+          'libx264', 'libx265', 'libsvtav1', 'libaom-av1', 'libvpx-vp9', 'prores_ks', 'dnxhd', 'gif',
+          'mpeg2video', 'mpeg1video', 'mpeg4', 'wmv2', 'mjpeg',
+          'aac', 'libmp3lame', 'libopus', 'flac', 'pcm_s16le', 'pcm_s24le', 'mp2', 'ac3', 'wmav2',
           'h264_nvenc', 'hevc_nvenc', 'av1_nvenc', 'h264_qsv', 'hevc_qsv', 'av1_qsv', 'h264_amf', 'hevc_amf', 'av1_amf',
         ],
         workingHwEncoders: ['h264_nvenc', 'hevc_nvenc', 'av1_nvenc', 'h264_qsv', 'hevc_qsv', 'av1_qsv'],
@@ -1603,6 +1715,7 @@ export function createMockApi(): MediaApi {
         /* storage unavailable */
       }
       if (patch.videoConcurrency || patch.imageConcurrency) schedule()
+      if ('autoCheckUpdates' in patch) updates.onAutoCheckChanged()
       return clone(settings)
     },
 
@@ -1610,7 +1723,7 @@ export function createMockApi(): MediaApi {
       return () => {}
     },
 
-    ...mockUpdates(),
+    ...updates.methods,
   }
   return api
 }

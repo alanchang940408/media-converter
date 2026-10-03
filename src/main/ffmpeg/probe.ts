@@ -13,6 +13,8 @@ interface FfprobeStream {
   width?: number
   height?: number
   pix_fmt?: string
+  /** "num:den", e.g. "32:27"; "0:1" / absent when unknown */
+  sample_aspect_ratio?: string
   avg_frame_rate?: string
   r_frame_rate?: string
   duration?: string
@@ -36,6 +38,25 @@ const num = (v: unknown): number | undefined => {
   if (v === undefined || v === null || v === '' || v === 'N/A') return undefined
   const n = Number(v)
   return Number.isFinite(n) ? n : undefined
+}
+
+/**
+ * MediaInfo as this engine produces it. `sampleAspectRatio` is an engine-internal extra, deliberately not part of the
+ * shared MediaInfo contract: the source's pixel aspect as displayed (display width = width × sampleAspectRatio, already
+ * inverted for 90°/270° rotation), present only for non-square pixels (anamorphic DV / HDV / DVD sources). It travels
+ * with job.sourceInfo (stored as-is) and is read back by args.ts (sourceSampleAspect).
+ */
+export interface ProbedMediaInfo extends MediaInfo {
+  sampleAspectRatio?: number
+}
+
+/** "32:27" → 1.185…; undefined for unknown ("0:1", "N/A"), garbage or square (1:1) pixels. */
+export function parseSampleAspect(r?: string): number | undefined {
+  const m = /^\s*(\d+)\s*[:/]\s*(\d+)\s*$/.exec(r ?? '')
+  if (!m) return undefined
+  const v = Number(m[1]) / Number(m[2])
+  if (!Number.isFinite(v) || v <= 0 || Math.abs(v - 1) < 1e-3) return undefined
+  return v
 }
 
 /** "30000/1001" → 29.97 (3 decimals); undefined for 0/0 or garbage. */
@@ -78,7 +99,7 @@ export function audioBitDepth(s: FfprobeStream): number | undefined {
 }
 
 /** Pure mapping of ffprobe JSON to MediaInfo (exported for tests). */
-export function mapProbe(json: FfprobeOutput, path: string, sizeBytes: number): MediaInfo {
+export function mapProbe(json: FfprobeOutput, path: string, sizeBytes: number): ProbedMediaInfo {
   const streams = json.streams ?? []
   const fmt = json.format ?? {}
   const video = streams.find((s) => s.codec_type === 'video' && !s.disposition?.attached_pic)
@@ -89,7 +110,7 @@ export function mapProbe(json: FfprobeOutput, path: string, sizeBytes: number): 
   let kind: MediaKind = video ? 'video' : 'audio'
   if (video && (classifyPath(path) === 'image' || /^image2$|_pipe$/.test(formatName ?? ''))) kind = 'image'
 
-  const info: MediaInfo = {
+  const info: ProbedMediaInfo = {
     path,
     kind,
     sizeBytes: sizeBytes || num(fmt.size) || 0,
@@ -112,6 +133,8 @@ export function mapProbe(json: FfprobeOutput, path: string, sizeBytes: number): 
       info.height = swap ? w : h
     }
     info.rotation = rotation
+    const sar = parseSampleAspect(video.sample_aspect_ratio)
+    if (sar !== undefined) info.sampleAspectRatio = rotation === 90 || rotation === 270 ? 1 / sar : sar
     const fps = parseRate(video.avg_frame_rate) ?? parseRate(video.r_frame_rate)
     if (fps !== undefined) info.fps = fps
     info.videoCodec = video.codec_name
@@ -139,7 +162,7 @@ function firstErrorLine(stderr: string): string {
   return stderr.split(/\r?\n/).map((l) => l.trim()).filter(Boolean)[0] ?? ''
 }
 
-export async function probe(path: string): Promise<MediaInfo> {
+export async function probe(path: string): Promise<ProbedMediaInfo> {
   const { ffprobe } = getFfmpegPaths()
   let res
   try {

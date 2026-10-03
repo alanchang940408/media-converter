@@ -1534,18 +1534,31 @@
   font-size: var(--fs-xs);
 }
 
-.st-codes code {
+.st-enc-chip {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 5px;
   padding: 0 6px;
   border-radius: 3px;
   background: var(--panel-3);
-  color: var(--text-2);
-  font-size: 11px;
-  line-height: 18px;
+  color: var(--text);
+  font-size: 11.5px;
+  line-height: 20px;
+  white-space: nowrap;
 }
 
-.st-codes code.hl {
+.st-enc-chip code {
+  color: var(--text-3);
+  font-size: 10.5px;
+}
+
+.st-enc-chip.hl {
   background: var(--success-soft);
   color: var(--success);
+}
+
+.st-enc-chip.hl code {
+  color: color-mix(in srgb, var(--success) 70%, var(--text-3));
 }
 
 .st-caps-foot {

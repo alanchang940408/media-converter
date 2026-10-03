@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { parseEncoderList, parseVersion, HW_TEST_ENCODERS } from '../../src/main/ffmpeg/capabilities'
 import { frameArgs, frameScaleFilter } from '../../src/main/ffmpeg/frames'
-import { mapProbe, parseRate, pixFmtHasAlpha, streamRotation, type FfprobeOutput } from '../../src/main/ffmpeg/probe'
+import { mapProbe, parseRate, parseSampleAspect, pixFmtHasAlpha, streamRotation, type FfprobeOutput } from '../../src/main/ffmpeg/probe'
 import {
   LineSplitter,
   ProgressParser,
@@ -135,6 +135,26 @@ describe('capabilities parsing', () => {
     expect(parseEncoderList(text)).toEqual(['libx264', 'h264_nvenc', 'h264_qsv', 'prores_ks', 'libopus'])
   })
 
+  it('reports the legacy MPG / WMV / AVI encoders (video and audio)', () => {
+    const text = [
+      ' VFS..D mjpeg                MJPEG (Motion JPEG)',
+      ' V.S..D mpeg1video           MPEG-1 video',
+      ' V.S..D mpeg2video           MPEG-2 video',
+      ' V.S..D mpeg4                MPEG-4 part 2',
+      ' V..... libxvid              libxvidcore MPEG-4 part 2 (codec mpeg4)',
+      ' V....D wmv1                 Windows Media Video 7',
+      ' V....D wmv2                 Windows Media Video 8',
+      ' V..... mpeg2_qsv            MPEG-2 video (Intel Quick Sync Video acceleration) (codec mpeg2video)',
+      ' A....D ac3                  ATSC A/52A (AC-3)',
+      ' A....D ac3_fixed            ATSC A/52A (AC-3) (codec ac3)',
+      ' A....D mp2                  MP2 (MPEG audio layer 2)',
+      ' A....D mp2fixed             MP2 fixed point (MPEG audio layer 2) (codec mp2)',
+      ' A....D wmav1                Windows Media Audio 1',
+      ' A....D wmav2                Windows Media Audio 2',
+    ].join('\n')
+    expect(parseEncoderList(text)).toEqual(['mjpeg', 'mpeg1video', 'mpeg2video', 'mpeg4', 'wmv2', 'ac3', 'mp2', 'wmav2'])
+  })
+
   it('tests h264/hevc/av1 on every hw family plus prores_videotoolbox', () => {
     expect(HW_TEST_ENCODERS).toHaveLength(13)
     expect(HW_TEST_ENCODERS).toContain('av1_amf')
@@ -172,6 +192,22 @@ describe('probe mapping', () => {
     expect(ccw).toMatchObject({ width: 1080, height: 1920, rotation: 270 })
     const flip = mapProbe(base([{ ...v, side_data_list: [{ side_data_type: 'Display Matrix', rotation: 180 }] }]), 'p.mov', 1)
     expect(flip).toMatchObject({ width: 1920, height: 1080, rotation: 180 })
+  })
+
+  it('sample aspect ratio: kept only for non-square pixels, inverted by a 90/270 rotation', () => {
+    expect(parseSampleAspect('32:27')).toBeCloseTo(32 / 27, 12)
+    expect(parseSampleAspect('8:9')).toBeCloseTo(8 / 9, 12)
+    expect(parseSampleAspect('4/3')).toBeCloseTo(4 / 3, 12)
+    for (const x of ['1:1', '0:1', '0:0', 'N/A', '', 'abc', '-4:3', undefined]) expect(parseSampleAspect(x), String(x)).toBeUndefined()
+    const dv = mapProbe(base([{ ...v, width: 720, height: 480, sample_aspect_ratio: '8:9' }, a]), 'dv.avi', 1)
+    expect(dv).toMatchObject({ width: 720, height: 480 })
+    expect(dv.sampleAspectRatio).toBeCloseTo(8 / 9, 12)
+    expect(mapProbe(base([{ ...v, sample_aspect_ratio: '1:1' }]), 'sq.mp4', 1)).not.toHaveProperty('sampleAspectRatio')
+    expect(mapProbe(base([v]), 'none.mp4', 1)).not.toHaveProperty('sampleAspectRatio')
+    // portrait phone clip stored 1440x1080 at 4:3 and rotated: displayed 1080 wide, pixels 3:4
+    const rot = mapProbe(base([{ ...v, width: 1440, height: 1080, sample_aspect_ratio: '4:3', tags: { rotate: '90' } }]), 'r.mp4', 1)
+    expect(rot).toMatchObject({ width: 1080, height: 1440, rotation: 90 })
+    expect(rot.sampleAspectRatio).toBeCloseTo(3 / 4, 12)
   })
 
   it('legacy rotate tag (clockwise)', () => {

@@ -2,15 +2,31 @@ name: Release
 
 # Pushing a v* tag (npm run release:patch / release:minor) builds every platform and publishes a GitHub Release with
 # the installers, the portable exe, latest*.yml and the .blockmap files — the installed app auto-updates from these.
-#   1. prepare:  the tag must match package.json; create the release as a draft (hidden from releases/latest)
-#   2. build:    each platform runs `electron-builder --publish always`, uploading into that draft
-#   3. publish:  once every build succeeded, the draft becomes the latest release (apps start seeing the update)
-# A manual run (workflow_dispatch) only builds and uploads workflow artifacts; nothing is published.
+#   0. plan:     publish (v* tag) or dry run, and which platforms to build
+#   1. prepare:  publish only — the tag must match package.json; create the release as a draft (hidden from releases/latest)
+#   2. build:    each platform runs `electron-builder --publish always`, uploading into that draft (dry run: --publish never)
+#   3. publish:  publish only — once every build succeeded, the draft becomes the latest release (apps start seeing the update)
+#
+# A manual run (workflow_dispatch) is a dry run by default: no release or draft is created and nothing is uploaded to
+# GitHub Releases; the build outputs (installer, portable exe, latest.yml, .blockmap) are kept as workflow artifacts.
+# Dry runs build Windows only (macOS runner minutes cost 10×) unless all_platforms is set.
+#   gh workflow run release.yml -f dry_run=true                         # Windows only
+#   gh workflow run release.yml -f dry_run=true -f all_platforms=true   # Windows + macOS + Linux
+#   gh workflow run release.yml --ref v0.1.2 -f dry_run=false           # real publish of an existing tag (= the tag push)
 
 on:
   push:
     tags: ['v*']
   workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Dry run: build and keep the installers as workflow artifacts, create no GitHub Release'
+        type: boolean
+        default: true
+      all_platforms:
+        description: 'Dry run only: also build macOS and Linux (otherwise Windows only)'
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -20,9 +36,55 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  plan:
+    name: Plan (publish or dry run)
+    runs-on: ubuntu-latest
+    outputs:
+      publish: ${{ steps.plan.outputs.publish }}
+      matrix: ${{ steps.plan.outputs.matrix }}
+    steps:
+      - name: Decide the mode and the platforms
+        id: plan
+        shell: bash
+        env:
+          EVENT: ${{ github.event_name }}
+          REF: ${{ github.ref }}
+          # empty for tag pushes
+          DRY_RUN: ${{ inputs.dry_run }}
+          ALL_PLATFORMS: ${{ inputs.all_platforms }}
+        run: |
+          # Windows: the BtbN ffmpeg build is pinned and verified locally (--strict: every required encoder must be
+          # present). macOS: one dmg per architecture → ffmpeg for both.
+          windows='{"name":"windows","os":"windows-latest","ffmpeg":"node scripts/fetch-ffmpeg.mjs --strict","target":"--win"}'
+          macos='{"name":"macos","os":"macos-latest","ffmpeg":"node scripts/fetch-ffmpeg.mjs --arch x64,arm64","target":"--mac"}'
+          linux='{"name":"linux","os":"ubuntu-latest","ffmpeg":"node scripts/fetch-ffmpeg.mjs","target":"--linux"}'
+          if [ "$EVENT" = "push" ] || [ "$DRY_RUN" = "false" ]; then
+            if [[ "$REF" != refs/tags/v* ]]; then
+              echo "::error::Publishing needs a v* tag ref (gh workflow run release.yml --ref vX.Y.Z -f dry_run=false); $REF is not one. Use dry_run=true to only build."
+              exit 1
+            fi
+            publish=true
+            platforms="$windows,$macos,$linux"
+            summary="Publishing ${REF#refs/tags/}: draft release → builds upload into it → latest release"
+          else
+            publish=false
+            platforms="$windows"
+            names=windows
+            if [ "$ALL_PLATFORMS" = "true" ]; then
+              platforms="$windows,$macos,$linux"
+              names="windows, macos, linux"
+            fi
+            summary="Dry run ($names): no GitHub Release; the installers are kept as workflow artifacts"
+          fi
+          echo "publish=$publish" >> "$GITHUB_OUTPUT"
+          echo "matrix={\"include\":[$platforms]}" >> "$GITHUB_OUTPUT"
+          echo "$summary"
+          echo "### $summary" >> "$GITHUB_STEP_SUMMARY"
+
   prepare:
     name: Prepare draft release
-    if: startsWith(github.ref, 'refs/tags/v')
+    needs: plan
+    if: needs.plan.outputs.publish == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -53,35 +115,21 @@ jobs:
 
   build:
     name: Build (${{ matrix.name }})
-    needs: prepare
-    # also runs for workflow_dispatch, where prepare is skipped
-    if: ${{ !cancelled() && (needs.prepare.result == 'success' || needs.prepare.result == 'skipped') }}
+    needs: [plan, prepare]
+    # prepare is skipped on dry runs
+    if: ${{ !cancelled() && needs.plan.result == 'success' && (needs.prepare.result == 'success' || needs.prepare.result == 'skipped') }}
     runs-on: ${{ matrix.os }}
     permissions:
       contents: write
     strategy:
       fail-fast: false
-      matrix:
-        include:
-          - name: windows
-            os: windows-latest
-            # BtbN build is pinned and verified locally: every required encoder must be present
-            ffmpeg: node scripts/fetch-ffmpeg.mjs --strict
-            target: --win
-          - name: macos
-            os: macos-latest
-            # one dmg per architecture → ffmpeg for both
-            ffmpeg: node scripts/fetch-ffmpeg.mjs --arch x64,arm64
-            target: --mac
-          - name: linux
-            os: ubuntu-latest
-            ffmpeg: node scripts/fetch-ffmpeg.mjs
-            target: --linux
+      # publish: windows + macos + linux; dry run: windows (+ macos + linux with all_platforms)
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
     env:
       # unsigned builds: do not look for signing identities in the keychain / cert store
       CSC_IDENTITY_AUTO_DISCOVERY: 'false'
-      # upload to the draft release only for tag pushes
-      PUBLISH: ${{ startsWith(github.ref, 'refs/tags/v') && 'always' || 'never' }}
+      # upload to the draft release only when publishing; dry runs never touch GitHub Releases
+      PUBLISH: ${{ needs.plan.outputs.publish == 'true' && 'always' || 'never' }}
     steps:
       - uses: actions/checkout@v5
 
@@ -115,16 +163,30 @@ jobs:
         run: npm run build
 
       # electron-builder.yml → publish: github (alan940408/media-converter, releaseType: release). With the draft from
-      # the prepare job in place it uploads the installers, latest*.yml and .blockmap files into that draft.
-      - name: Package (and upload to the draft release)
+      # the prepare job in place it uploads the installers, latest*.yml and .blockmap files into that draft. With
+      # --publish never (dry run) it only writes them to release/ (latest.yml included).
+      - name: Package (${{ env.PUBLISH == 'always' && 'and upload to the draft release' || 'dry run, no upload' }})
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: npx electron-builder ${{ matrix.target }} --publish ${{ env.PUBLISH }}
 
+      # the same files the publish job requires on the release (installed apps update from latest.yml + Setup exe)
+      - name: Check the Windows outputs
+        if: matrix.name == 'windows'
+        shell: bash
+        run: |
+          ls -l release
+          for pattern in '^latest\.yml$' 'Setup.*\.exe$' 'Portable.*\.exe$'; do
+            if ! ls release | grep -Eq "$pattern"; then
+              echo "::error::release/ has no file matching $pattern"
+              exit 1
+            fi
+          done
+
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: media-converter-${{ matrix.name }}
+          name: media-converter-${{ matrix.name }}${{ needs.plan.outputs.publish != 'true' && '-dry-run' || '' }}
           if-no-files-found: error
           retention-days: 30
           path: |
@@ -139,9 +201,10 @@ jobs:
 
   publish:
     name: Publish release
-    needs: build
-    # only when every platform built and uploaded; otherwise the draft stays for a look (publish or delete it by hand)
-    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [plan, build]
+    # only when publishing and every platform built and uploaded; otherwise the draft stays for a look (publish or
+    # delete it by hand)
+    if: needs.plan.outputs.publish == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: write

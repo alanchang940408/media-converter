@@ -29,7 +29,7 @@ import type {
   QueueSnapshot,
   VideoPreset,
 } from '../../shared/types'
-import type { EncodeProgress, FfmpegEngine, ImageEngine, VideoOverlay } from '../contracts'
+import type { EncodeProgress, FfmpegEngine, ImageEngine, OutputSize, VideoOverlay } from '../contracts'
 import { t, type I18nKey } from '../i18n'
 import type { JsonStore } from '../jsonStore'
 import { DEFAULT_FILE_PRESET_ID } from '../presets/builtin'
@@ -1015,7 +1015,7 @@ export class Queue {
       if (!st?.isFile()) throw new Error(this.tr('error.sourceMissing', { path: job.source }))
 
       let info = job.sourceInfo
-      let size: { width: number; height: number } | null = null
+      let size: OutputSize | null = null
       let ext: string
       if (job.kind === 'video') {
         if (!job.video) throw new Error('Job has no video settings')
@@ -1050,10 +1050,14 @@ export class Queue {
         const vs = job.video!.settings
         let overlay: VideoOverlay | null = null
         if (vs.watermark && vs.video.codec !== 'copy' && vs.video.codec !== 'none' && size) {
-          const layer = await this.deps.image.renderWatermarkLayer(vs.watermark, size.width, size.height, {
-            name: vars.name,
-            date: ymd(now),
-          })
+          // Non-square output pixels (DVD-Video): lay the watermark out for the displayed frame, squeezed to stored pixels.
+          const layer = await this.deps.image.renderWatermarkLayer(
+            vs.watermark,
+            size.width,
+            size.height,
+            { name: vars.name, date: ymd(now) },
+            size.sar ? { sampleAspect: size.sar } : undefined,
+          )
           await mkdir(this.tmpDir, { recursive: true })
           overlayPng = join(this.tmpDir, `${job.id}.png`)
           await writeFile(overlayPng, layer.png)

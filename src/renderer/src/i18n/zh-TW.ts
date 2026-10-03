@@ -155,7 +155,7 @@ export const zhTW: Record<keyof typeof en, string> = {
   'bar.waiting': '等待工作',
   'bar.ready': '準備就緒',
   'bar.idle': '閒置',
-  'bar.progressCount': '已完成 {done} / {total}',
+  'bar.progressCount': '已處理 {done} / {total}',
   'bar.autoStart': '自動開始',
   'bar.autoStartHint': '加入檔案後立即開始轉檔',
   'bar.start': '開始佇列',

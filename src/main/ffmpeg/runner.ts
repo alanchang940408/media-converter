@@ -2,7 +2,7 @@
 import { constants } from 'node:fs'
 import { access } from 'node:fs/promises'
 import { EncodeError, type VideoEncodeRequest, type VideoEncodeResult } from '../contracts'
-import { buildArgs, hwFamilyOf } from './args'
+import { buildArgs, hwFamilyOf, type BuildOptions } from './args'
 import { getFfmpegPaths } from './paths'
 import { spawnTracked } from './proc'
 import { LineSplitter, ProgressParser, RingBuffer, pickErrorLine, progressFromSample } from './progress'
@@ -127,24 +127,47 @@ async function assertInputsExist(req: VideoEncodeRequest): Promise<void> {
   }
 }
 
+/**
+ * ffmpeg binaries (by path) that cannot request the MJPEG full colour range with format=…:color_ranges=pc (builds older
+ * than 7.1): their MJPEG jobs go straight to the legacy yuvj422p path after the first failure.
+ */
+const legacyMjpegBins = new Set<string>()
+
+/** True when an MJPEG encode failed because the ffmpeg build does not know the format filter's color_ranges option. */
+export function needsLegacyMjpeg(encoder: string, err: unknown): boolean {
+  return encoder === 'mjpeg' && err instanceof EncodeError && err.logTail.some((l) => /color_ranges/i.test(l))
+}
+
+function logLine(req: VideoEncodeRequest, msg: string): void {
+  try {
+    req.onLog?.(msg)
+  } catch {
+    /* ignore */
+  }
+}
+
 export async function encode(req: VideoEncodeRequest): Promise<VideoEncodeResult> {
   if (req.signal.aborted) throw abortError()
   await assertInputsExist(req)
-  const first = buildArgs(req)
+  const bin = getFfmpegPaths().ffmpeg
+  const opts: BuildOptions = { legacyMjpeg: legacyMjpegBins.has(bin) }
+  const first = buildArgs(req, opts)
   try {
     await runOnce(first.args, req)
     return { encoder: first.encoder, args: first.args }
   } catch (err) {
     if (isAbortError(err) || req.signal.aborted) throw isAbortError(err) ? err : abortError()
-    if (!hwFamilyOf(first.encoder)) throw err
-    const msg = `Hardware encoder ${first.encoder} failed, retrying with software`
-    try {
-      req.onLog?.(msg)
-    } catch {
-      /* ignore */
+    if (!opts.legacyMjpeg && needsLegacyMjpeg(first.encoder, err)) {
+      legacyMjpegBins.add(bin)
+      logLine(req, 'This ffmpeg build cannot request the MJPEG colour range (needs ffmpeg 7.1+), retrying with yuvj422p')
+      const legacy = buildArgs(req, { ...opts, legacyMjpeg: true })
+      await runOnce(legacy.args, req)
+      return { encoder: legacy.encoder, args: legacy.args }
     }
+    if (!hwFamilyOf(first.encoder)) throw err
+    logLine(req, `Hardware encoder ${first.encoder} failed, retrying with software`)
     const settings = { ...req.settings, video: { ...req.settings.video, hw: 'none' as const } }
-    const sw = buildArgs({ ...req, settings })
+    const sw = buildArgs({ ...req, settings }, opts)
     await runOnce(sw.args, req)
     return { encoder: sw.encoder, args: sw.args }
   }

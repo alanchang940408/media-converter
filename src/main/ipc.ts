@@ -7,6 +7,7 @@ import { AUDIO_EXTS, baseNameOf, classifyPath, IMAGE_EXTS, VIDEO_EXTS, WATERMARK
 import type { FileKindFilter, QueueEvent, VideoPresetSettings } from '../shared/types'
 import type { CapabilitiesCache } from './caps'
 import type { FfmpegEngine, ImageEngine } from './contracts'
+import { sourceSampleAspect } from './ffmpeg/args'
 import { t, type I18nKey } from './i18n'
 import type { PresetStore } from './presets/store'
 import { expandPaths, type Queue } from './queue/Queue'
@@ -90,15 +91,20 @@ async function renderPreviewFrame(
   const info = await ctx.ffmpeg.probe(path)
   const size = ctx.ffmpeg.computeOutputSize(info, settings)
   if (!size || !info.width || !info.height) throw new Error(t('error.noVideoFrame'))
-  const { width: W, height: H } = size
+  // Non-square output pixels (DVD-Video): show what a player displays — the frame at its displayed width with the
+  // source fitted in by its own displayed aspect (letterbox / pillarbox, as dvdFilters does), watermark included.
+  const anamorphic = !!size.sar && Math.abs(size.sar - 1) > 1e-3
+  const W = anamorphic ? Math.max(2, Math.round(size.width * size.sar!)) : size.width
+  const H = size.height
+  const srcW = anamorphic ? info.width * sourceSampleAspect(info) : info.width
 
   // decode at (at most) 4K keeping the source aspect, then reproduce the geometry with sharp
-  const cap = Math.min(1, 3840 / Math.max(info.width, info.height))
-  const fw = Math.max(2, Math.round((info.width * cap) / 2) * 2)
+  const cap = Math.min(1, 3840 / Math.max(srcW, info.height))
+  const fw = Math.max(2, Math.round((srcW * cap) / 2) * 2)
   const fh = Math.max(2, Math.round((info.height * cap) / 2) * 2)
   const frame = await ctx.ffmpeg.extractFrame(path, Math.max(0, timeSec), { width: fw, height: fh, format: 'jpeg' })
   const mode = settings.video.scaleMode
-  const fit = mode === 'crop' ? 'cover' : mode === 'pad' ? 'contain' : 'fill'
+  const fit = anamorphic || mode === 'pad' ? 'contain' : mode === 'crop' ? 'cover' : 'fill'
   let out: Buffer = await sharp(frame)
     .resize(W, H, { fit, position: 'centre', background: { r: 0, g: 0, b: 0, alpha: 1 }, kernel: 'lanczos3' })
     .jpeg({ quality: 92 })

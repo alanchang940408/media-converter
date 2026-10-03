@@ -4,18 +4,26 @@ import {
   buildArgs,
   computeOutputSize,
   crfArgs,
+  dvdAspect,
   dvdFilters,
+  dvdOutputSize,
   dvdRateArgs,
+  formatFilter,
   mpegFrameRate,
   muxerFor,
   muxerForSettings,
   outputExtension,
   qscaleFor,
   resolveVideoEncoder,
+  sourceDisplayAspect,
+  sourceSampleAspect,
   supportedAudioKbps,
   supportedSampleRate,
   type BuildRequest,
 } from '../../src/main/ffmpeg/args'
+import type { ProbedMediaInfo } from '../../src/main/ffmpeg/probe'
+import { needsLegacyMjpeg } from '../../src/main/ffmpeg/runner'
+import { EncodeError } from '../../src/main/contracts'
 import { getBuiltinPreset } from '../../src/main/presets/builtin'
 import type { VideoPreset, VideoPresetSettings } from '../../src/shared/types'
 import {
@@ -33,7 +41,8 @@ const DEST = 'C:/out/輸出 file.tmp'
 function req(settings: VideoPresetSettings, o: Partial<BuildRequest> = {}): BuildRequest {
   return { source: 'C:/media/測試 影片.mov', info: videoInfo(), settings, dest: DEST, caps: fakeCaps(), preferredHw: 'auto', ...o }
 }
-const build = (settings: VideoPresetSettings, o: Partial<BuildRequest> = {}) => buildArgs(req(settings, o))
+const build = (settings: VideoPresetSettings, o: Partial<BuildRequest> = {}, legacyMjpeg = false) =>
+  buildArgs(req(settings, o), { legacyMjpeg })
 const vf = (args: string[]) => val(args, '-vf')
 
 const mpg = (video: Partial<VideoPresetSettings['video']> = {}, audio: Partial<VideoPresetSettings['audio']> = {}) =>
@@ -237,13 +246,44 @@ describe('encoder options per codec', () => {
     expect(build(wmv({}, { bitrateKbps: null })).args).toContain('128k')
   })
 
-  it('MJPEG: full-range 4:2:2, qscale, no speed options', () => {
-    const { args } = build(avi({ codec: 'mjpeg', rate: { mode: 'crf', crf: 18 }, speed: 'quality' }, { codec: 'pcm' }))
-    expect(vf(args)).toBe('format=yuvj422p')
+  it('MJPEG: full-range 4:2:2 (yuv422p + colour range pc, not the deprecated yuvj422p), qscale, no speed options', () => {
+    const s = avi({ codec: 'mjpeg', rate: { mode: 'crf', crf: 18 }, speed: 'quality' }, { codec: 'pcm' })
+    const { args } = build(s)
+    expect(vf(args)).toBe('format=pix_fmts=yuv422p:color_ranges=pc')
+    expect(val(args, '-color_range')).toBe('pc')
+    expect(args.join(' ')).not.toContain('yuvj')
     expect(val(args, '-q:v')).toBe('2')
     expect(args).not.toContain('-mbd')
     expect(args).not.toContain('-g')
     expect(val(args, '-c:a')).toBe('pcm_s16le')
+    // the colour range also ends a watermark graph
+    const wm = build(s, { overlay: { pngPath: 'logo.png', left: 4, top: 6 } }).args
+    expect(val(wm, '-filter_complex')).toBe('[0:V:0][1:v:0]overlay=4:6:format=auto,format=pix_fmts=yuv422p:color_ranges=pc[vout]')
+  })
+
+  it('MJPEG legacy path (ffmpeg < 7.1): yuvj422p, no explicit colour range', () => {
+    const s = avi({ codec: 'mjpeg', width: 1280 }, { codec: 'pcm' })
+    const { args } = build(s, {}, true)
+    expect(vf(args)).toBe('scale=1280:720:flags=lanczos,setsar=1,format=yuvj422p')
+    expect(args).not.toContain('-color_range')
+    // the switch only affects MJPEG
+    expect(build(avi(), {}, true).args).toEqual(build(avi()).args)
+    expect(formatFilter('mpeg4', 'yuv420p')).toBe('format=yuv420p')
+    expect(formatFilter('mjpeg', 'yuv422p')).toBe('format=pix_fmts=yuv422p:color_ranges=pc')
+    expect(formatFilter('mjpeg', 'yuvj422p', { legacyMjpeg: true })).toBe('format=yuvj422p')
+  })
+
+  it('falls back to the legacy MJPEG path only when the ffmpeg build lacks color_ranges', () => {
+    // what ffmpeg 6.x / 7.0 print for the modern format filter
+    const old = new EncodeError('Option not found', [
+      "[Parsed_format_0 @ 000001] Option 'color_ranges' not found",
+      "[AVFilterGraph @ 000002] Error initializing filter 'format' with args 'pix_fmts=yuv422p:color_ranges=pc'",
+      'Error opening output files: Option not found',
+    ], 1)
+    expect(needsLegacyMjpeg('mjpeg', old)).toBe(true)
+    expect(needsLegacyMjpeg('mpeg4', old)).toBe(false)
+    expect(needsLegacyMjpeg('mjpeg', new EncodeError('No space left on device', ['av_interleaved_write_frame(): No space left on device'], 1))).toBe(false)
+    expect(needsLegacyMjpeg('mjpeg', new Error('color_ranges'))).toBe(false)
   })
 
   it('H.264 in AVI keeps the regular x264 options', () => {
@@ -331,8 +371,8 @@ describe('DVD-Video', () => {
 
   it('frame size is the DVD standard whatever the width / height / fps fields say', () => {
     const odd = dvd('ntsc', { width: 1920, height: 1080, scaleMode: 'fit', noUpscale: true, fps: 60 })
-    expect(computeOutputSize(videoInfo(), odd)).toEqual({ width: 720, height: 480 })
-    expect(computeOutputSize(videoInfo({ width: 320, height: 240 }), dvd('pal'))).toEqual({ width: 720, height: 576 })
+    expect(computeOutputSize(videoInfo(), odd)).toEqual({ width: 720, height: 480, sar: 32 / 27 })
+    expect(computeOutputSize(videoInfo({ width: 320, height: 240 }), dvd('pal'))).toEqual({ width: 720, height: 576, sar: 16 / 15 })
     expect(vf(build(odd).args)).toContain('fps=30000/1001')
     expect(vf(build(odd).args)).not.toContain('fps=60')
   })
@@ -351,6 +391,52 @@ describe('DVD-Video', () => {
     expect([val(ac3, '-b:a'), val(ac3, '-ar')]).toEqual(['448k', '48000'])
     const mp2 = build(dvd('pal', {}, { codec: 'mp2', bitrateKbps: 224 }), { info: videoInfo({ audioSampleRate: 44100 }) }).args
     expect([val(mp2, '-c:a'), val(mp2, '-b:a'), val(mp2, '-ar')]).toEqual(['mp2', '224k', '48000'])
+  })
+
+  it('pixel aspect: stored 720x480 / 720x576 displays at exactly 16:9 or 4:3', () => {
+    const wide = videoInfo()
+    const narrow = videoInfo({ width: 640, height: 480 })
+    expect(dvdOutputSize(wide, 'ntsc')).toEqual({ width: 720, height: 480, sar: 32 / 27 })
+    expect(dvdOutputSize(narrow, 'ntsc')).toEqual({ width: 720, height: 480, sar: 8 / 9 })
+    expect(dvdOutputSize(wide, 'pal')).toEqual({ width: 720, height: 576, sar: 64 / 45 })
+    expect(dvdOutputSize(narrow, 'pal')).toEqual({ width: 720, height: 576, sar: 16 / 15 })
+    for (const [info, std, dar] of [[wide, 'ntsc', 16 / 9], [narrow, 'ntsc', 4 / 3], [wide, 'pal', 16 / 9], [narrow, 'pal', 4 / 3]] as const) {
+      const o = dvdOutputSize(info, std)
+      expect((o.width * o.sar) / o.height).toBeCloseTo(dar, 10)
+    }
+    // displayed widths the watermark is laid out on: 853.3 / 640 (NTSC), 1024 / 768 (PAL)
+    expect(720 * (32 / 27)).toBeCloseTo(853.333, 3)
+    expect(720 * (64 / 45)).toBeCloseTo(1024, 10)
+    // non-DVD outputs keep square pixels (no sar field)
+    expect(computeOutputSize(wide, mpg())).toEqual({ width: 1920, height: 1080 })
+    expect(computeOutputSize(wide, builtin('avi-xvid-720p'))).toEqual({ width: 1280, height: 720 })
+  })
+
+  it('16:9 vs 4:3 follows the source displayed aspect, including its pixel aspect', () => {
+    const anam = (o: Partial<ProbedMediaInfo>): ProbedMediaInfo => videoInfo(o)
+    // DV NTSC 4:3 (720x480 at 8:9 = 640x480 shown): the 3:2 storage alone would pick 16:9
+    const dv43 = anam({ width: 720, height: 480, sampleAspectRatio: 8 / 9 })
+    expect(sourceDisplayAspect(dv43)).toBeCloseTo(4 / 3, 10)
+    expect(dvdAspect(dv43)).toEqual([4, 3])
+    expect(dvdFilters(dv43, 'ntsc')[2]).toBe('setdar=4/3')
+    expect(computeOutputSize(dv43, dvd('ntsc'))).toEqual({ width: 720, height: 480, sar: 8 / 9 })
+    // DV PAL 16:9 (720x576 at 64:45 = 1024x576 shown): the 5:4 storage alone would pick 4:3
+    const dv169 = anam({ width: 720, height: 576, sampleAspectRatio: 64 / 45 })
+    expect(dvdAspect(dv169)).toEqual([16, 9])
+    expect(dvdFilters(dv169, 'pal')[2]).toBe('setdar=16/9')
+    // HDV 1440x1080 at 4:3 = 1920x1080 shown
+    const hdv = anam({ width: 1440, height: 1080, sampleAspectRatio: 4 / 3 })
+    expect(dvdAspect(hdv)).toEqual([16, 9])
+    expect(computeOutputSize(hdv, dvd('pal'))).toEqual({ width: 720, height: 576, sar: 64 / 45 })
+    // the scale expression itself uses ffmpeg's own dar (which includes the sar)
+    expect(build(dvd('ntsc'), { info: hdv }).args.join(' ')).toContain('setdar=16/9')
+    expect(build(dvd('ntsc'), { info: dv43 }).args.join(' ')).toContain('setdar=4/3')
+    // unknown / square / garbage pixel aspect = storage aspect
+    expect(sourceSampleAspect(videoInfo())).toBe(1)
+    expect(sourceSampleAspect(anam({ sampleAspectRatio: 0 }))).toBe(1)
+    expect(sourceSampleAspect(anam({ sampleAspectRatio: Number.NaN }))).toBe(1)
+    expect(sourceDisplayAspect({})).toBeNull()
+    expect(dvdAspect({})).toEqual([16, 9])
   })
 
   it('watermark overlay keeps the DVD aspect flag', () => {
