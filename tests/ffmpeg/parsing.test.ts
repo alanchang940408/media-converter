@@ -59,6 +59,9 @@ describe('progress parsing', () => {
     expect(progressFromSample({ outTimeSec: 0.05, end: false }, 10, 1).etaSec).toBeUndefined()
     expect(progressFromSample({ outTimeSec: 5, end: false }, null, 1).fraction).toBe(0)
     expect(progressFromSample({ end: true }, null, 3)).toEqual({ fraction: 1, elapsedSec: 3, etaSec: 0 })
+    // never moves backwards: out_time=N/A (e.g. during the +faststart rewrite) keeps the previous fraction
+    expect(progressFromSample({ end: false }, 10, 4, 0.41).fraction).toBe(0.41)
+    expect(progressFromSample({ outTimeSec: 1, end: false }, 10, 4, 0.41).fraction).toBe(0.41)
     expect(progressFromSample({ outTimeSec: 1, fps: 30, speed: 2, end: false }, 4, 1)).toMatchObject({ fps: 30, speed: 2 })
   })
 

@@ -106,11 +106,15 @@ export interface ProgressState {
   elapsedSec: number
 }
 
-/** Turn a sample into EncodeProgress fields. `totalSec` is the expected output duration (null = unknown). */
-export function progressFromSample(sample: ProgressSample, totalSec: number | null, elapsedSec: number): ProgressState {
-  let fraction = 0
+/**
+ * Turn a sample into EncodeProgress fields. `totalSec` is the expected output duration (null = unknown).
+ * `floor` is the last reported fraction: progress never moves backwards (ffmpeg reports out_time=N/A during the
+ * +faststart moov rewrite, which would otherwise read as 0).
+ */
+export function progressFromSample(sample: ProgressSample, totalSec: number | null, elapsedSec: number, floor = 0): ProgressState {
+  let fraction = floor
   if (sample.end) fraction = 1
-  else if (totalSec && totalSec > 0 && sample.outTimeSec !== undefined) fraction = Math.min(1, Math.max(0, sample.outTimeSec / totalSec))
+  else if (totalSec && totalSec > 0 && sample.outTimeSec !== undefined) fraction = Math.max(floor, Math.min(1, Math.max(0, sample.outTimeSec / totalSec)))
   const state: ProgressState = { fraction, elapsedSec }
   if (sample.fps !== undefined) state.fps = sample.fps
   if (sample.speed !== undefined) state.speed = sample.speed

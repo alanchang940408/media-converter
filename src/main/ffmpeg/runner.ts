@@ -70,11 +70,14 @@ function runOnce(args: string[], req: VideoEncodeRequest): Promise<void> {
     req.signal.addEventListener('abort', onAbort, { once: true })
 
     child.stdout?.setEncoding('utf8')
+    let lastFraction = 0
     child.stdout?.on('data', (chunk: string) => {
       for (const sample of progress.push(chunk)) {
         if (aborted) continue
         try {
-          req.onProgress(progressFromSample(sample, totalSec, (Date.now() - started) / 1000))
+          const state = progressFromSample(sample, totalSec, (Date.now() - started) / 1000, lastFraction)
+          lastFraction = state.fraction
+          req.onProgress(state)
         } catch {
           /* ignore listener errors */
         }
