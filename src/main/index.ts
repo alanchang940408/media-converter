@@ -1,17 +1,18 @@
 // App / window lifecycle. './store' must stay the first import: it applies MC_USER_DATA_DIR before anything reads userData.
-import { applyUserDataOverride, flushAllStoresSync, openStore, type JsonStore } from './store'
+import { applyUserDataOverride, flushAllStoresSync, openStore, userDataDir, type JsonStore } from './store'
 import { app, BrowserWindow, dialog, nativeTheme, net, Notification, powerSaveBlocker, screen, shell } from 'electron'
 import { existsSync, statSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { classifyPath } from '../shared/media'
-import type { AppSettings } from '../shared/types'
+import type { AppSettings, BridgeRequestEvent } from '../shared/types'
+import { AdobePanelInstaller, bridgeHostId, BridgeService, emptyBridgeState, PANEL_BUNDLE_ID, parseBridgeState, type BridgeState } from './bridge'
 import { CapabilitiesCache } from './caps'
 import { ffmpegEngine } from './ffmpeg'
 import { t } from './i18n'
 import { imageEngine } from './image'
-import { registerIpc, sendExternalFiles, sendQueueEvent, sendUpdateEvent } from './ipc'
+import { registerIpc, sendBridgeEvent, sendExternalFiles, sendQueueEvent, sendUpdateEvent } from './ipc'
 import { emptyPresetFile, parsePresetFile, PresetStore } from './presets/store'
 import { handleMediaProtocol, registerMediaScheme } from './protocol'
 import { emptyJournal, parseJournal, type FileOpJournal } from './queue/journal'
@@ -60,6 +61,9 @@ let queue: Queue
 let watch: WatchManager
 let winStore: JsonStore<WindowState>
 let updater: Updater
+let bridge: BridgeService | null = null
+/** Bridge requests handled before the renderer finished loading (e.g. the panel launched the app). */
+let pendingBridgeEvents: BridgeRequestEvent[] = []
 
 /** Media files (and folders, when packaged) passed on the command line. */
 function filesFromArgv(argv: string[], cwd: string): string[] {
@@ -81,6 +85,34 @@ function deliverFiles(paths: string[]): void {
   if (!paths.length) return
   if (win && rendererReady) sendExternalFiles(win, paths)
   else pendingFiles.push(...paths)
+}
+
+/** In-app toast for a request from the Adobe panel; an OS notification as well when the window is not in front. */
+function deliverBridgeEvent(e: BridgeRequestEvent): void {
+  if (win && rendererReady) sendBridgeEvent(win, e)
+  else pendingBridgeEvents.push(e)
+  if (win && !win.isDestroyed() && win.isFocused()) return
+  const id = bridgeHostId(e.host)
+  const host = t(id === 'premiere' ? 'bridge.host.premiere' : id === 'aftereffects' ? 'bridge.host.aftereffects' : 'bridge.host.other')
+  if (e.status === 'accepted') notify(t('bridge.received', { n: e.jobCount, host }), e.errors[0] ?? '')
+  else notify(t('bridge.rejected', { host }), e.errors[0] ?? '')
+}
+
+/** Packaged: the installer / portable exe the Adobe panel can launch; dev runs only get a hint. */
+function bridgeExePath(): string {
+  if (app.isPackaged) return process.env.PORTABLE_EXECUTABLE_FILE || process.execPath
+  return `dev: run "npm run dev" in ${resolve(here, '../..')}`
+}
+
+/** The signed CEP panel shipped with the app (electron-builder extraResources), or adobe/dist in a dev checkout. */
+function adobePanelSourceDir(): string {
+  return app.isPackaged ? join(process.resourcesPath, 'adobe-panel', PANEL_BUNDLE_ID) : resolve(here, '../../adobe/dist', PANEL_BUNDLE_ID)
+}
+
+/** Per-user CEP extensions folder (no admin rights needed); MC_CEP_EXTENSIONS_DIR redirects it for tests. */
+function cepExtensionsDir(): string {
+  const override = process.env.MC_CEP_EXTENSIONS_DIR
+  return override && override.trim() ? resolve(override.trim()) : join(app.getPath('appData'), 'Adobe', 'CEP', 'extensions')
 }
 
 function focusWindow(): void {
@@ -216,6 +248,9 @@ function createWindow(): void {
     pendingFiles = []
     // the preload buffers these until the UI subscribes
     sendExternalFiles(w, files)
+    const bridgeEvents = pendingBridgeEvents
+    pendingBridgeEvents = []
+    for (const e of bridgeEvents) sendBridgeEvent(w, e)
   })
   w.webContents.on('did-start-loading', () => {
     rendererReady = false
@@ -256,6 +291,7 @@ async function cleanup(): Promise<void> {
   const work = (async () => {
     await queue?.shutdown().catch((err) => console.error('[quit] queue shutdown failed:', err))
     await watch?.close().catch((err) => console.error('[quit] watch close failed:', err))
+    await bridge?.close().catch((err) => console.error('[quit] bridge close failed:', err))
   })()
   // never hang the quit on a stuck process
   await Promise.race([work, new Promise((r) => setTimeout(r, 10000))])
@@ -349,19 +385,50 @@ async function startApp(): Promise<void> {
 
   const thumbnails = new ThumbnailService(ffmpegEngine, imageEngine)
 
+  // Adobe Premiere Pro / After Effects panel: folder bridge in <userData>/bridge (see shared/bridge.ts)
+  const bridgeDir = join(userDataDir(), 'bridge')
+  const bridgeService = new BridgeService({
+    dir: bridgeDir,
+    queue,
+    presets,
+    settings,
+    appVersion: app.getVersion(),
+    exePath: bridgeExePath(),
+    state: openStore<BridgeState>('bridge-state.json', emptyBridgeState, { parse: parseBridgeState }),
+    onRequest: deliverBridgeEvent,
+    onError: (err) => console.warn('[bridge]', err.message),
+  })
+  bridge = bridgeService
+  presets.onChange(() => bridgeService.scheduleInfo())
+  const panel = new AdobePanelInstaller({ sourceDir: adobePanelSourceDir(), extensionsDir: cepExtensionsDir() })
+
   settings.onChange((_next, _prev, changed) => {
     if (changed.some((k) => k === 'videoConcurrency' || k === 'imageConcurrency' || k === 'removeFinished' || k === 'preventSleep')) {
       queue.refresh()
     }
     if (changed.includes('ffmpegPath')) void caps.get(true)
     if (changed.includes('theme') && win && !win.isDestroyed()) win.setBackgroundColor(backgroundColor())
+    if (changed.some((k) => k === 'language' || k === 'defaultOutputDir' || k === 'lastVideoPresetId')) bridgeService.scheduleInfo()
   })
   nativeTheme.on('updated', () => {
     if (win && !win.isDestroyed()) win.setBackgroundColor(backgroundColor())
   })
 
   updater = createUpdater()
-  registerIpc({ getWindow: () => win, queue, presets, watch, settings, thumbnails, caps, ffmpeg: ffmpegEngine, image: imageEngine, updater })
+  registerIpc({
+    getWindow: () => win,
+    queue,
+    presets,
+    watch,
+    settings,
+    thumbnails,
+    caps,
+    ffmpeg: ffmpegEngine,
+    image: imageEngine,
+    updater,
+    panel,
+    bridgeDir,
+  })
   handleMediaProtocol()
   createWindow()
 
@@ -369,6 +436,8 @@ async function startApp(): Promise<void> {
   void caps.get()
   void queue.init().catch((err) => console.error('[queue] init failed:', err))
   void watch.start().catch((err) => console.error('[watch] start failed:', err))
+  // writes info.json, then handles requests the panel left in the inbox while the app was closed
+  void bridgeService.start().catch((err) => console.error('[bridge] start failed:', err))
   // GitHub Releases: first check ~10 s after start, then every 6 h (settings.autoCheckUpdates); off in dev runs
   updater.start()
 }

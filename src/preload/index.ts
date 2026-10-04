@@ -2,7 +2,7 @@
 // only 'electron' is required at runtime; IPC channel names are inlined by the bundler.
 import { contextBridge, ipcRenderer, webUtils, type IpcRendererEvent } from 'electron'
 import { IPC, type InvokeMethod, type MediaApi, type UpdateEvent } from '../shared/api'
-import type { QueueEvent } from '../shared/types'
+import type { BridgeRequestEvent, QueueEvent } from '../shared/types'
 
 /** ipcRenderer.invoke wraps errors as "Error invoking remote method 'mc:invoke': Error: <msg>" — keep only <msg>. */
 function cleanError(err: unknown): Error {
@@ -27,6 +27,18 @@ ipcRenderer.on(IPC.externalFiles, (_e: IpcRendererEvent, paths: string[]) => {
     return
   }
   for (const cb of externalListeners) cb(paths)
+})
+
+// Requests from the Adobe panel handled at startup can arrive before React subscribes too: buffer them the same way.
+const bridgeListeners = new Set<(e: BridgeRequestEvent) => void>()
+let pendingBridge: BridgeRequestEvent[] = []
+ipcRenderer.on(IPC.bridgeEvent, (_e: IpcRendererEvent, e: BridgeRequestEvent) => {
+  if (!e || typeof e !== 'object') return
+  if (!bridgeListeners.size) {
+    pendingBridge.push(e)
+    return
+  }
+  for (const cb of bridgeListeners) cb(e)
 })
 
 const api: MediaApi = {
@@ -93,6 +105,26 @@ const api: MediaApi = {
     ipcRenderer.on(IPC.updateEvent, listener)
     return () => {
       ipcRenderer.removeListener(IPC.updateEvent, listener)
+    }
+  },
+
+  getAdobePanelStatus: invoke('getAdobePanelStatus'),
+  installAdobePanel: invoke('installAdobePanel'),
+  uninstallAdobePanel: invoke('uninstallAdobePanel'),
+  openBridgeFolder: invoke('openBridgeFolder'),
+  onBridgeEvent: (cb) => {
+    // one entry per subscription, even when the same callback subscribes twice
+    const listener = (e: BridgeRequestEvent): void => cb(e)
+    bridgeListeners.add(listener)
+    if (pendingBridge.length) {
+      const queued = pendingBridge
+      pendingBridge = []
+      queueMicrotask(() => {
+        for (const e of queued) listener(e)
+      })
+    }
+    return () => {
+      bridgeListeners.delete(listener)
     }
   },
 

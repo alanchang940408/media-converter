@@ -613,3 +613,34 @@ export interface ImagePreviewResult {
 }
 
 export type FileKindFilter = 'media' | 'video' | 'image' | 'audio' | 'watermark' | 'presets' | 'any'
+
+// ───────────────────────────── Adobe integration ─────────────────────────────
+
+/** The "Send to Media Converter" panel for Premiere Pro / After Effects (a CEP extension). */
+export interface AdobePanelStatus {
+  /** This build ships the signed panel (packaged: <resources>/adobe-panel, dev: adobe/dist). */
+  bundled: boolean
+  /** The panel folder exists in the per-user CEP extensions folder. */
+  installed: boolean
+  /** ExtensionBundleVersion of the installed panel (CSXS/manifest.xml). */
+  installedVersion?: string
+  /** ExtensionBundleVersion of the bundled panel. */
+  bundledVersion?: string
+  /** Where the panel is (or would be) installed: %APPDATA%\Adobe\CEP\extensions\<bundle id>. */
+  path: string
+}
+
+/** Pushed main → renderer when Media Converter handled a request from the Adobe panel (shown as a toast). */
+export interface BridgeRequestEvent {
+  /** Request id (bridge/inbox/<id>.json). */
+  id: string
+  /** 'premiere' | 'aftereffects' | anything else the panel sent ('' when unknown). */
+  host: string
+  status: 'accepted' | 'rejected'
+  /** Jobs added to the queue. */
+  jobCount: number
+  /** Files that were queued. */
+  fileCount: number
+  /** Localised problems (unknown presets, missing files…); may be non-empty for accepted requests too. */
+  errors: string[]
+}

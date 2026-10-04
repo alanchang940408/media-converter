@@ -3,9 +3,11 @@
 // generated SVG imagery so every screen can be demoed without the main process.
 import type { MediaApi, UpdateEvent, UpdateState } from '../../shared/api'
 import type {
+  AdobePanelStatus,
   AddJobsRequest,
   AddJobsResult,
   AppInfo,
+  BridgeRequestEvent,
   AppSettings,
   EncoderCapabilities,
   FileKindFilter,
@@ -752,6 +754,61 @@ function mockUpdates(autoCheck: () => boolean): {
       },
     },
     onAutoCheckChanged: schedule,
+  }
+}
+
+// ───────────────────────────── Adobe integration ─────────────────────────────
+
+const PANEL_PATH = 'C:\\Users\\Demo\\AppData\\Roaming\\Adobe\\CEP\\extensions\\io.github.alan940408.mediaconverter.panel'
+
+/**
+ * Panel install state and bridge toasts of the mock. Default: the panel ships with the app and is not installed.
+ *   ?adobe=installed  installed, same version     ?adobe=old      installed 0.9.0, 1.0.0 bundled (update)
+ *   ?adobe=missing    this build has no panel     ?bridge=demo    a request "from After Effects" arrives after 3 s
+ */
+function mockAdobe(): Pick<MediaApi, 'getAdobePanelStatus' | 'installAdobePanel' | 'uninstallAdobePanel' | 'openBridgeFolder' | 'onBridgeEvent'> {
+  const params = typeof location !== 'undefined' ? new URLSearchParams(location.search) : new URLSearchParams()
+  const demo = params.get('adobe')
+  const bundledVersion = '1.0.0'
+  let status: AdobePanelStatus =
+    demo === 'missing'
+      ? { bundled: false, installed: false, path: PANEL_PATH }
+      : demo === 'installed' || demo === 'old'
+        ? { bundled: true, installed: true, bundledVersion, installedVersion: demo === 'old' ? '0.9.0' : bundledVersion, path: PANEL_PATH }
+        : { bundled: true, installed: false, bundledVersion, path: PANEL_PATH }
+  const listeners = new Set<(e: BridgeRequestEvent) => void>()
+  if (params.get('bridge') === 'demo') {
+    setTimeout(() => {
+      const e: BridgeRequestEvent = { id: 'demo', host: 'aftereffects', status: 'accepted', jobCount: 2, fileCount: 1, errors: [] }
+      for (const cb of listeners) cb(e)
+    }, 3000)
+  }
+  return {
+    async getAdobePanelStatus(): Promise<AdobePanelStatus> {
+      await delay(80)
+      return clone(status)
+    },
+    async installAdobePanel(): Promise<AdobePanelStatus> {
+      await delay(600)
+      if (!status.bundled) throw new Error('This build does not include the Premiere Pro / After Effects panel.')
+      status = { ...status, installed: true, installedVersion: status.bundledVersion }
+      return clone(status)
+    },
+    async uninstallAdobePanel(): Promise<AdobePanelStatus> {
+      await delay(300)
+      status = { bundled: status.bundled, installed: false, ...(status.bundledVersion ? { bundledVersion: status.bundledVersion } : {}), path: status.path }
+      return clone(status)
+    },
+    async openBridgeFolder(): Promise<void> {
+      await delay(30)
+    },
+    onBridgeEvent(cb: (e: BridgeRequestEvent) => void): () => void {
+      const listener = (e: BridgeRequestEvent): void => cb(e)
+      listeners.add(listener)
+      return () => {
+        listeners.delete(listener)
+      }
+    },
   }
 }
 
@@ -1734,6 +1791,7 @@ export function createMockApi(): MediaApi {
     },
 
     ...updates.methods,
+    ...mockAdobe(),
   }
   return api
 }

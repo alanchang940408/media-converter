@@ -83,10 +83,29 @@ export function normalizePreset(raw: unknown): Preset | null {
 }
 
 export class PresetStore implements PresetLookup {
+  private readonly listeners = new Set<() => void>()
+
   constructor(
     private readonly store: JsonStore<PresetFile>,
     private readonly locale: () => Locale = () => 'en',
   ) {}
+
+  /** Called after user presets were saved, deleted or imported (e.g. to refresh the Adobe panel's preset list). */
+  onChange(listener: () => void): () => void {
+    this.listeners.add(listener)
+    return () => this.listeners.delete(listener)
+  }
+
+  private changed(): void {
+    this.store.save()
+    for (const l of this.listeners) {
+      try {
+        l()
+      } catch (err) {
+        console.error('[presets] listener failed:', err)
+      }
+    }
+  }
 
   private get user(): Preset[] {
     return this.store.get().presets
@@ -126,7 +145,7 @@ export class PresetStore implements PresetLookup {
       clean.id = this.newId()
       this.user.push(clean)
     }
-    this.store.save()
+    this.changed()
     return structuredClone(clean)
   }
 
@@ -136,7 +155,7 @@ export class PresetStore implements PresetLookup {
     const idx = presets.findIndex((p) => p.id === id)
     if (idx >= 0) {
       presets.splice(idx, 1)
-      this.store.save()
+      this.changed()
     }
   }
 
@@ -176,7 +195,7 @@ export class PresetStore implements PresetLookup {
       imported.push(p)
     }
     if (!imported.length) throw new Error(t('error.noValidPresets'))
-    this.store.save()
+    this.changed()
     return imported.map((p) => structuredClone(p))
   }
 }

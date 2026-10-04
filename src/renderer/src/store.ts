@@ -4,6 +4,7 @@ import { create } from 'zustand'
 import type {
   AppInfo,
   AppSettings,
+  BridgeRequestEvent,
   EncoderCapabilities,
   FileOpUndoInfo,
   Job,
@@ -15,11 +16,12 @@ import type {
 } from '../../shared/types'
 import { api } from './api'
 import { LOCALE_HTML_LANG as LOCALE_TAGS, makeT, type MessageKey, type TFunc } from './i18n'
+import { bridgeToast } from './lib/adobe'
 import { fileName } from './lib/format'
 import { errorCodeMessage, friendlyRawError } from './lib/jobError'
 
 export type View = 'queue' | 'batch' | 'presets' | 'watch'
-export type SettingsTab = 'general' | 'output' | 'performance' | 'about'
+export type SettingsTab = 'general' | 'output' | 'performance' | 'adobe' | 'about'
 
 export interface ToastAction {
   label: string
@@ -261,9 +263,18 @@ function onQueueEvent(e: QueueEvent): void {
   }
 }
 
+/** A request from the Premiere Pro / After Effects panel was handled: say so, and show the queue for accepted ones. */
+function onBridgeEvent(e: BridgeRequestEvent): void {
+  const tt = bridgeToast(e, makeT(selectLocale(get())))
+  if (e.status === 'accepted') set({ view: 'queue' })
+  toast(tt.kind, tt.text, tt.detail)
+}
+
 export async function init(): Promise<() => void> {
   const unsubs: (() => void)[] = []
   unsubs.push(api.onQueueEvent(onQueueEvent))
+  // a fresh wrapper per subscription: StrictMode runs init twice and the first run's cleanup must not drop the second's
+  if (typeof api.onBridgeEvent === 'function') unsubs.push(api.onBridgeEvent((e) => onBridgeEvent(e)))
   unsubs.push(
     api.onExternalFiles((paths) => {
       set({ view: 'queue' })

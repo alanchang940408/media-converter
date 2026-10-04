@@ -1,10 +1,11 @@
 // Single invoke channel: ipcMain.handle('mc:invoke', (e, method, ...args)) → handler map implementing MediaApi.
 import { app, BrowserWindow, dialog, ipcMain, shell, type FileFilter, type OpenDialogOptions } from 'electron'
-import { readFile, stat, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, stat, writeFile } from 'node:fs/promises'
 import sharp from 'sharp'
 import { IPC, type InvokeMethod, type MediaApi } from '../shared/api'
 import { AUDIO_EXTS, baseNameOf, classifyPath, IMAGE_EXTS, VIDEO_EXTS, WATERMARK_EXTS } from '../shared/media'
-import type { FileKindFilter, QueueEvent, VideoPresetSettings } from '../shared/types'
+import type { BridgeRequestEvent, FileKindFilter, QueueEvent, VideoPresetSettings } from '../shared/types'
+import type { AdobePanelInstaller } from './bridge/panelInstall'
 import type { CapabilitiesCache } from './caps'
 import type { FfmpegEngine, ImageEngine } from './contracts'
 import { t, type I18nKey } from './i18n'
@@ -27,6 +28,9 @@ export interface IpcContext {
   ffmpeg: FfmpegEngine
   image: ImageEngine
   updater: Updater
+  /** Adobe integration: the panel installer and <userData>/bridge. */
+  panel: AdobePanelInstaller
+  bridgeDir: string
 }
 
 type Handlers = {
@@ -252,6 +256,16 @@ export function createHandlers(ctx: IpcContext): Handlers {
     checkForUpdates: () => ctx.updater.check(true),
     installUpdateNow: () => ctx.updater.installNow(),
     openReleasePage: () => ctx.updater.openReleasePage(),
+
+    // ── Adobe integration ──
+    getAdobePanelStatus: () => ctx.panel.status(),
+    installAdobePanel: () => ctx.panel.install(),
+    uninstallAdobePanel: () => ctx.panel.uninstall(),
+    openBridgeFolder: async () => {
+      await mkdir(ctx.bridgeDir, { recursive: true })
+      const err = await shell.openPath(ctx.bridgeDir)
+      if (err) throw new Error(err)
+    },
   }
 }
 
@@ -279,4 +293,8 @@ export function sendExternalFiles(win: BrowserWindow | null, paths: string[]): v
 
 export function sendUpdateEvent(win: BrowserWindow | null, e: UpdateEvent): void {
   if (win && !win.isDestroyed() && !win.webContents.isDestroyed()) win.webContents.send(IPC.updateEvent, e)
+}
+
+export function sendBridgeEvent(win: BrowserWindow | null, e: BridgeRequestEvent): void {
+  if (win && !win.isDestroyed() && !win.webContents.isDestroyed()) win.webContents.send(IPC.bridgeEvent, e)
 }

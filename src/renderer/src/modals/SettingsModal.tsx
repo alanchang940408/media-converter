@@ -1,7 +1,7 @@
-// Settings modal: vertical tabs (General / Output / Performance / About) driven by store.settingsTab.
+// Settings modal: vertical tabs (General / Output / Performance / Adobe integration / About) driven by store.settingsTab.
 // Every control saves immediately through saveSettings().
 import type { KeyboardEvent } from 'react'
-import { Cpu, FolderOutput, Info, Settings, SlidersHorizontal, type LucideIcon } from 'lucide-react'
+import { Cpu, FolderOutput, Info, Puzzle, Settings, SlidersHorizontal, type LucideIcon } from 'lucide-react'
 import { openSettings, useStore, useT, type SettingsTab } from '../store'
 import type { MessageKey } from '../i18n'
 import { Button, Modal, cx } from '../components/ui'
@@ -9,11 +9,13 @@ import { GeneralTab } from './settings/GeneralTab'
 import { OutputTab } from './settings/OutputTab'
 import { PerformanceTab } from './settings/PerformanceTab'
 import { AboutTab } from './settings/AboutTab'
+import { AdobeTab } from './settings/AdobeTab'
 
 const TABS: { id: SettingsTab; icon: LucideIcon; label: MessageKey }[] = [
   { id: 'general', icon: SlidersHorizontal, label: 'settings.tabGeneral' },
   { id: 'output', icon: FolderOutput, label: 'settings.tabOutput' },
   { id: 'performance', icon: Cpu, label: 'settings.tabPerformance' },
+  { id: 'adobe', icon: Puzzle, label: 'settings.tabAdobe' },
   { id: 'about', icon: Info, label: 'settings.tabAbout' },
 ]
 
@@ -72,6 +74,7 @@ export function SettingsModal() {
         {tab === 'general' && <GeneralTab />}
         {tab === 'output' && <OutputTab />}
         {tab === 'performance' && <PerformanceTab />}
+        {tab === 'adobe' && <AdobeTab />}
         {tab === 'about' && <AboutTab />}
       </div>
     </Modal>

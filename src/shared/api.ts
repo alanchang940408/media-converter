@@ -2,10 +2,12 @@
 // Implemented by src/preload/index.ts (ipcRenderer.invoke → src/main/ipc.ts handlers)
 // and by src/renderer/src/mockApi.ts (browser-only dev mode, no Electron).
 import type {
+  AdobePanelStatus,
   AddJobsRequest,
   AddJobsResult,
   AppInfo,
   AppSettings,
+  BridgeRequestEvent,
   EncoderCapabilities,
   FileKindFilter,
   FileOpPreviewItem,
@@ -118,6 +120,18 @@ export interface MediaApi {
   openReleasePage(): Promise<void>
   /** Subscribe to update events. Returns an unsubscribe function. */
   onUpdateEvent(cb: (e: UpdateEvent) => void): () => void
+
+  // ── Adobe integration (Premiere Pro / After Effects panel, see shared/bridge.ts) ──
+  /** Whether the panel ships with this build and whether / which version is installed for this user. */
+  getAdobePanelStatus(): Promise<AdobePanelStatus>
+  /** Copy the bundled panel into the per-user CEP extensions folder (replaces an older copy). Returns the new status. */
+  installAdobePanel(): Promise<AdobePanelStatus>
+  /** Remove the installed panel folder (only that folder). Returns the new status. */
+  uninstallAdobePanel(): Promise<AdobePanelStatus>
+  /** Open <userData>/bridge in the file manager (created when missing). */
+  openBridgeFolder(): Promise<void>
+  /** Requests handled from the panel ("received 2 jobs from After Effects"). Returns an unsubscribe function. */
+  onBridgeEvent(cb: (e: BridgeRequestEvent) => void): () => void
 }
 
 /**
@@ -165,7 +179,11 @@ export const IPC = {
   queueEvent: 'mc:queue-event',
   externalFiles: 'mc:external-files',
   updateEvent: 'mc:update-event',
+  bridgeEvent: 'mc:bridge-event',
 } as const
 
 /** Methods of MediaApi that go through ipcRenderer.invoke(IPC.invoke, method, ...args). */
-export type InvokeMethod = Exclude<keyof MediaApi, 'getPathForFile' | 'mediaUrl' | 'onQueueEvent' | 'onExternalFiles' | 'onUpdateEvent'>
+export type InvokeMethod = Exclude<
+  keyof MediaApi,
+  'getPathForFile' | 'mediaUrl' | 'onQueueEvent' | 'onExternalFiles' | 'onUpdateEvent' | 'onBridgeEvent'
+>
