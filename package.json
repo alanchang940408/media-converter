@@ -19,6 +19,8 @@
     "test": "vitest run",
     "e2e": "playwright test",
     "fetch-ffmpeg": "node scripts/fetch-ffmpeg.mjs",
+    "build:cep": "node scripts/build-cep.mjs",
+    "test:ae": "node scripts/test-ae.mjs",
     "dist": "npm run build && electron-builder --win --publish never",
     "dist:dir": "npm run build && electron-builder --win --dir --publish never",
     "release:patch": "node scripts/release.mjs patch",

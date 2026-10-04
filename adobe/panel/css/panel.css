@@ -1,0 +1,286 @@
+/* Dark panel close to Premiere Pro / After Effects; --bg follows the host skin (js/main.js applyTheme).
+   Premiere Pro CC 2019 runs CEP 9 = Chromium 61: no flexbox `gap` (Chromium 84), no :focus-visible (86) - spacing uses
+   sibling margins instead. */
+:root {
+  --bg: #232323;
+  --fg: #d4d4d4;
+  --muted: #8d8d8d;
+  --field: rgba(0, 0, 0, 0.28);
+  --field-border: rgba(255, 255, 255, 0.1);
+  --hover: rgba(255, 255, 255, 0.06);
+  --accent: #2d8ceb;
+  --accent-hover: #4a9df0;
+  --ok: #6cc070;
+  --warn: #e0b04a;
+  --error: #ef6b62;
+  --fs: 11px;
+}
+:root.light {
+  --fg: #2a2a2a;
+  --muted: #666;
+  --field: rgba(255, 255, 255, 0.6);
+  --field-border: rgba(0, 0, 0, 0.15);
+  --hover: rgba(0, 0, 0, 0.05);
+}
+
+* {
+  box-sizing: border-box;
+}
+html,
+body {
+  margin: 0;
+  height: 100%;
+  background: var(--bg);
+  color: var(--fg);
+  font: var(--fs) / 1.4 'Segoe UI', 'Microsoft JhengHei', 'Yu Gothic UI', -apple-system, 'PingFang TC', sans-serif;
+  overflow: hidden;
+  user-select: none;
+}
+[hidden] {
+  display: none !important;
+}
+
+#app {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  padding: 8px 10px 10px;
+}
+#app > * + * {
+  margin-top: 8px;
+}
+main {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+main > * + * {
+  margin-top: 10px;
+}
+
+.top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.title {
+  font-weight: 600;
+  font-size: 1.1em;
+}
+.badge {
+  color: var(--muted);
+  font-size: 0.92em;
+}
+
+.block {
+  display: flex;
+  flex-direction: column;
+}
+.block > * + * {
+  margin-top: 5px;
+}
+.grow-block {
+  flex: 1;
+  min-height: 90px;
+}
+.label-row,
+.row {
+  display: flex;
+  align-items: center;
+}
+.label-row > * + *,
+.row > * + * {
+  margin-left: 6px;
+}
+.label-row {
+  justify-content: space-between;
+}
+.label {
+  font-weight: 600;
+  color: var(--fg);
+}
+.row-label {
+  color: var(--muted);
+  min-width: 4.5em;
+}
+.grow {
+  flex: 1;
+  min-width: 0;
+}
+.small {
+  font-size: 0.92em;
+}
+.muted {
+  color: var(--muted);
+}
+.strong {
+  font-weight: 600;
+}
+.ellipsis {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.box {
+  background: var(--field);
+  border: 1px solid var(--field-border);
+  border-radius: 3px;
+  padding: 5px 7px;
+  word-break: break-word;
+}
+.box.warn,
+.path.warn {
+  color: var(--warn);
+}
+
+.list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  background: var(--field);
+  border: 1px solid var(--field-border);
+  border-radius: 3px;
+  padding: 2px 0;
+}
+.list .cat {
+  color: var(--muted);
+  font-size: 0.9em;
+  padding: 5px 8px 2px;
+  text-transform: none;
+}
+.list .empty {
+  color: var(--muted);
+  padding: 8px;
+}
+.preset {
+  display: flex;
+  align-items: flex-start;
+  padding: 3px 8px;
+  cursor: pointer;
+}
+.preset > * + * {
+  margin-left: 6px;
+}
+.preset:hover {
+  background: var(--hover);
+}
+.preset input {
+  margin: 2px 0 0;
+  accent-color: var(--accent);
+}
+.preset-body {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.preset-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.preset-summary {
+  color: var(--muted);
+  font-size: 0.9em;
+}
+
+button,
+select {
+  font: inherit;
+  color: var(--fg);
+  background: var(--field);
+  border: 1px solid var(--field-border);
+  border-radius: 3px;
+  padding: 3px 8px;
+  outline: none;
+}
+select.full {
+  width: 100%;
+}
+button {
+  cursor: pointer;
+}
+button:hover:not(:disabled) {
+  background: var(--hover);
+}
+button:focus,
+select:focus {
+  border-color: var(--accent);
+}
+button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+button.link {
+  background: none;
+  border: none;
+  color: var(--accent);
+  padding: 0 2px;
+}
+button.small-btn {
+  flex: none;
+  padding: 2px 7px;
+}
+button.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+  font-weight: 600;
+  padding: 7px 10px;
+  border-radius: 4px;
+}
+button.primary:hover:not(:disabled) {
+  background: var(--accent-hover);
+}
+
+.log {
+  height: 96px;
+  flex: none;
+  overflow-y: auto;
+  background: var(--field);
+  border: 1px solid var(--field-border);
+  border-radius: 3px;
+  padding: 4px 6px;
+  font-size: 0.92em;
+  user-select: text;
+}
+.log-line {
+  display: flex;
+}
+.log-line > * + * {
+  margin-left: 6px;
+}
+.log-time {
+  color: var(--muted);
+  flex: none;
+  font-variant-numeric: tabular-nums;
+}
+.log-msg {
+  word-break: break-word;
+}
+.log-line.ok .log-msg {
+  color: var(--ok);
+}
+.log-line.warn .log-msg {
+  color: var(--warn);
+}
+.log-line.error .log-msg {
+  color: var(--error);
+}
+
+.no-info {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  padding-top: 20px;
+}
+.no-info > * {
+  margin: 0;
+}
+.no-info > * + * {
+  margin-top: 6px;
+}
+.no-info p {
+  word-break: break-all;
+}

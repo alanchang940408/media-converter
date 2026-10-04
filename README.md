@@ -110,6 +110,18 @@ Media Converter 是一套桌面批次轉檔程式，結合了兩種常見的工�
 - 就算開啟了「自動開始」，檔案操作也一定要在預覽後按「執行」才會進行。
 - 三種操作是「預設集 → 檔案」分頁裡的內建預設集，可以另存成自己的版本；加入佇列後的檔案工作也能在工作編輯器裡修改操作、檔名和輸出資料夾。
 
+### Premiere Pro／After Effects 面板
+
+類似 Adobe Media Encoder 的「傳送到 Media Encoder」：在 Premiere Pro 或 After Effects 按一個按鈕，就把序列或合成輸出成高品質母片，再交給 Media Converter 用你勾選的預設集轉檔。
+
+- **支援版本**：Premiere Pro CC 2019（13.0）以上、After Effects CC 2019（16.0）以上，兩個程式共用同一個面板（CEP）。
+- **安裝**：在 Media Converter 開啟「設定 → Adobe 整合」→「安裝面板」，重新啟動 Premiere Pro／After Effects，再從「視窗 → 擴充功能 → Media Converter」開啟。面板有數位簽章（自簽憑證），裝在使用者自己的 `%APPDATA%\Adobe\CEP\extensions\`：不需要系統管理員權限，也不用改登錄檔（不必開 PlayerDebugMode）。
+- **使用**：勾選一或多個預設集（會記住上次的選擇）、選輸出資料夾（預設與專案檔相同），按「輸出並轉檔」。
+  - Premiere Pro：輸出作用中的序列（整個序列或入點到出點），母片用 Premiere 內建的「Apple ProRes 422 HQ」輸出預設（.epr）；找不到時可按「選擇 .epr…」自己指定。
+  - After Effects：輸出「專案」面板中選取的合成（沒選就用目前開啟的合成），透過算圖佇列使用「High Quality」等內建輸出模組範本（ProRes 422）。原本排在佇列裡的項目算圖期間會暫停，之後恢復原狀。
+- 母片存在 `%APPDATA%\Media Converter\bridge\intermediates\`，所有轉檔成功後自動刪除。Media Converter 沒開時，面板會自動啟動它。
+- 面板和 Media Converter 只透過 `bridge` 資料夾交換 JSON（格式見 `src/shared/bridge.ts`），沒有網路連線。
+
 ### 支援格式
 
 | 類型 | 讀取 | 輸出 |
@@ -166,7 +178,12 @@ npm run dist                    # Windows 安裝版 + 免安裝版 → release/
 npm run dist:dir                # 只打包成資料夾（快速檢查）
 node scripts/make-icons.mjs     # 由 resources/icon.svg 重新產生 build/icon.png、build/icon.ico
 node scripts/make-test-media.mjs  # 產生測試素材到 test-media/
+npm run build:cep               # 建置並簽署 Premiere／After Effects 面板 → adobe/dist/（npm run dist 之前要先跑）
+npm run test:ae                 # After Effects 自動測試：算圖 → bridge 請求（需要安裝 AE；加 -- --app 連同 Media Converter 轉檔一起測，需先 npm run build）
+node --test adobe/tests/bridge-node.test.cjs  # 面板 Node 模組的單元測試
 ```
+
+`build:cep` 第一次執行時，會從 Adobe 官方 GitHub（Adobe-CEP/CEP-Resources，固定版本並驗證 SHA-256）下載 ZXPSignCmd 到 `adobe/.tools/`，並建立自簽憑證 `adobe/.cert/`（密碼在同一個資料夾）；這兩個資料夾和 `adobe/dist/` 都不進 git。換一台電腦建置會產生新的憑證，對使用者沒有影響。面板原始碼在 `adobe/panel/`（不用框架；ExtendScript 部分是 ES3）。
 
 `fetch-ffmpeg` 的其他參數：`--platform win32|darwin|linux`、`--arch x64,arm64`、`--force`、`--strict`（缺少必要編碼器時失敗）、`--url <壓縮檔>`。Windows 使用 BtbN FFmpeg-Builds 的 GPL shared 版（固定版本並驗證 SHA-256）。
 
@@ -332,6 +349,18 @@ For example, `{exifdate}_{counter:3}` turns photos into `2026-07-15_001.jpg`, `2
 - File operations never start by themselves, even with **Auto-start** on — they run only when you press **Run** after the preview.
 - The three operations are built-in presets on the **Presets → File** tab; save your own variants there. File jobs in the queue can be edited (operation, name, output folder) in the job editor.
 
+### Premiere Pro / After Effects panel
+
+Like Adobe Media Encoder's "Send to Media Encoder": one button in Premiere Pro or After Effects renders the sequence or composition to a high-quality master, then Media Converter converts it with the presets you tick.
+
+- **Versions**: Premiere Pro CC 2019 (13.0) and later, After Effects CC 2019 (16.0) and later; one CEP panel serves both.
+- **Install**: in Media Converter open **Settings → Adobe integration → Install panel**, restart Premiere Pro / After Effects, then open **Window → Extensions → Media Converter**. The panel is signed (self-signed certificate) and goes into your own `%APPDATA%\Adobe\CEP\extensions\`: no admin rights, no registry change (PlayerDebugMode is not needed).
+- **Use**: tick one or more presets (remembered), pick the output folder (default: next to the project file) and press **Render & Convert**.
+  - Premiere Pro: renders the active sequence (entire, or In to Out) with Premiere's built-in "Apple ProRes 422 HQ" export preset (.epr); if it is missing, choose any .epr with **Choose .epr…**.
+  - After Effects: renders the compositions selected in the Project panel (or the open one) through the render queue with a built-in output module template such as "High Quality" (ProRes 422). Items you had queued are paused during the render and restored afterwards.
+- Masters go to `%APPDATA%\Media Converter\bridge\intermediates\` and are deleted once all of their conversions succeeded. If Media Converter is not running, the panel starts it.
+- The panel and Media Converter only exchange JSON files through the `bridge` folder (format: `src/shared/bridge.ts`); no network.
+
 ### Supported formats
 
 | Type | Input | Output |
@@ -384,7 +413,12 @@ npm run dist                    # Windows installer + portable exe → release/
 npm run dist:dir                # unpacked app folder only (quick check)
 node scripts/make-icons.mjs     # regenerate build/icon.png + build/icon.ico from resources/icon.svg
 node scripts/make-test-media.mjs  # synthetic test media → test-media/
+npm run build:cep               # build + sign the Premiere / After Effects panel → adobe/dist/ (run before npm run dist)
+npm run test:ae                 # After Effects test: render → bridge request (needs AE; add -- --app to include the Media Converter conversion, after npm run build)
+node --test adobe/tests/bridge-node.test.cjs  # unit tests of the panel's Node module
 ```
+
+On first run `build:cep` downloads ZXPSignCmd from Adobe's official GitHub (Adobe-CEP/CEP-Resources, pinned version, SHA-256 verified) into `adobe/.tools/` and creates a self-signed certificate in `adobe/.cert/` (password next to it); both folders and `adobe/dist/` stay out of git. Building on another machine creates a new certificate, which makes no difference to users. The panel source is in `adobe/panel/` (no framework; the ExtendScript part is ES3).
 
 More `fetch-ffmpeg` options: `--platform win32|darwin|linux`, `--arch x64,arm64`, `--force`, `--strict` (fail if a required encoder is missing), `--url <archive>`. Windows uses the BtbN FFmpeg-Builds GPL shared build, pinned and SHA-256 verified.
 

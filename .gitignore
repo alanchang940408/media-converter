@@ -13,3 +13,7 @@ playwright-report/
 .DS_Store
 Thumbs.db
 *.tsbuildinfo
+# Adobe panel: build output, downloaded ZXPSignCmd, self-signed certificate + password (npm run build:cep)
+adobe/dist/
+adobe/.tools/
+adobe/.cert/

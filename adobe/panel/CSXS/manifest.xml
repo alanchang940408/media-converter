@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Media Converter panel ("Send to Media Converter") for Premiere Pro (PPRO) and After Effects (AEFT).
+     CEP 9+ (Premiere Pro CC 2019 = CSXS 9, After Effects 2023 = CSXS 11). Must be signed: npm run build:cep. -->
+<ExtensionManifest Version="7.0" ExtensionBundleId="io.github.alan940408.mediaconverter.panel" ExtensionBundleVersion="0.1.0"
+  ExtensionBundleName="Media Converter" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+  <ExtensionList>
+    <Extension Id="io.github.alan940408.mediaconverter.panel.main" Version="0.1.0" />
+  </ExtensionList>
+  <ExecutionEnvironment>
+    <HostList>
+      <Host Name="PPRO" Version="[13.0,99.9]" />
+      <Host Name="AEFT" Version="[16.0,99.9]" />
+    </HostList>
+    <LocaleList>
+      <Locale Code="All" />
+    </LocaleList>
+    <RequiredRuntimeList>
+      <RequiredRuntime Name="CSXS" Version="9.0" />
+    </RequiredRuntimeList>
+  </ExecutionEnvironment>
+  <DispatchInfoList>
+    <Extension Id="io.github.alan940408.mediaconverter.panel.main">
+      <DispatchInfo>
+        <Resources>
+          <MainPath>./index.html</MainPath>
+          <ScriptPath>./jsx/host.jsx</ScriptPath>
+          <CEFCommandLine>
+            <Parameter>--enable-nodejs</Parameter>
+            <Parameter>--mixed-context</Parameter>
+          </CEFCommandLine>
+        </Resources>
+        <Lifecycle>
+          <AutoVisible>true</AutoVisible>
+        </Lifecycle>
+        <UI>
+          <Type>Panel</Type>
+          <Menu>Media Converter</Menu>
+          <Geometry>
+            <Size>
+              <Height>520</Height>
+              <Width>360</Width>
+            </Size>
+            <MinSize>
+              <Height>320</Height>
+              <Width>260</Width>
+            </MinSize>
+            <MaxSize>
+              <Height>2400</Height>
+              <Width>1600</Width>
+            </MaxSize>
+          </Geometry>
+        </UI>
+      </DispatchInfo>
+    </Extension>
+  </DispatchInfoList>
+</ExtensionManifest>

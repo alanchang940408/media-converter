@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="zh-TW">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Media Converter</title>
+    <link rel="stylesheet" href="css/panel.css" />
+  </head>
+  <body>
+    <div id="app">
+      <header class="top">
+        <span class="title">Media Converter</span>
+        <span id="hostBadge" class="badge"></span>
+      </header>
+
+      <section id="noInfo" class="no-info" hidden>
+        <p id="noInfoText" class="strong"></p>
+        <p id="noInfoHint" class="muted small"></p>
+        <button id="retryBtn" type="button" data-i18n="retry"></button>
+      </section>
+
+      <main id="main" hidden>
+        <section class="block">
+          <div class="label-row">
+            <span class="label" data-i18n="source"></span>
+            <button id="refreshBtn" type="button" class="link" data-i18n="refresh"></button>
+          </div>
+          <div id="sourceText" class="box"></div>
+          <div id="rangeRow" class="row" hidden>
+            <span class="row-label" data-i18n="range"></span>
+            <select id="rangeSel">
+              <option value="entire" data-i18n="rangeEntire"></option>
+              <option value="inout" data-i18n="rangeInOut"></option>
+            </select>
+          </div>
+          <div id="eprRow" class="row" hidden>
+            <span class="row-label" data-i18n="intermediate"></span>
+            <span id="eprName" class="ellipsis grow small"></span>
+            <button id="eprReset" type="button" class="link" data-i18n="useAuto" hidden></button>
+            <button id="eprBtn" type="button" class="small-btn" data-i18n="chooseEpr"></button>
+          </div>
+        </section>
+
+        <section class="block grow-block">
+          <div class="label-row">
+            <span class="label" data-i18n="presets"></span>
+            <span id="presetCount" class="muted small"></span>
+          </div>
+          <div id="presetList" class="list"></div>
+        </section>
+
+        <section class="block">
+          <div class="label-row">
+            <span class="label" data-i18n="output"></span>
+          </div>
+          <select id="outMode" class="full">
+            <option value="project" data-i18n="outProject"></option>
+            <option value="app" data-i18n="outApp"></option>
+            <option value="custom" data-i18n="outCustom"></option>
+          </select>
+          <div class="row">
+            <span id="outPath" class="path ellipsis grow small"></span>
+            <button id="browseBtn" type="button" class="small-btn" data-i18n="browse"></button>
+          </div>
+        </section>
+
+        <button id="goBtn" type="button" class="primary"></button>
+        <div id="log" class="log" aria-live="polite"></div>
+      </main>
+    </div>
+    <script src="js/i18n.js"></script>
+    <script src="js/cep.js"></script>
+    <script src="js/main.js"></script>
+  </body>
+</html>
