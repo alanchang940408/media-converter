@@ -1,6 +1,6 @@
 // Adobe panel bridge, Media Converter side: info.json, inbox requests → jobs → results, deleteAfter safety.
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, symlinkSync, writeFileSync } from 'node:fs'
-import { join, resolve } from 'node:path'
+import { join, resolve, sep } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { BridgeService, collidingOutputs, emptyBridgeState, parseBridgeState, type BridgeState } from '../../src/main/bridge/BridgeService'
 import { bridgePresets, videoPresetSummary } from '../../src/main/bridge/summary'
@@ -377,7 +377,8 @@ describe('bridge deleteAfter', () => {
     await b.start()
     const outside = touch(join(src, 'my footage.mov'))
     const sibling = touch(join(b.paths.dir, 'escape.mov'))
-    const viaDots = `${b.paths.intermediates}\\..\\escape.mov`
+    // a raw ".." with the platform separator (a backslash is an ordinary file-name character on Linux / macOS)
+    const viaDots = `${b.paths.intermediates}${sep}..${sep}escape.mov`
     const elsewhere = join(tmp.dir, 'elsewhere')
     mkdirSync(elsewhere)
     const target = touch(join(elsewhere, 'linked.mov'))
