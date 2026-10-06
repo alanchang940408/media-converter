@@ -6,6 +6,12 @@
 
 <p align="center"><a href="#繁體中文">繁體中文</a> · <a href="#english">English</a></p>
 
+> **下載安裝（Windows）**：到 [Releases](https://github.com/alanchang940408/media-converter/releases/latest) 下載 `Media-Converter-Setup-<版本>.exe`（安裝版，會自動更新）或 `Media-Converter-Portable-<版本>.exe`（免安裝版）。
+> 下載的是這個 repo 的 ZIP？解壓縮後點兩下 **`安裝 Media Converter.cmd`**，會自動下載最新版並開始安裝。
+> 第一次執行時 Windows 可能顯示「Windows 已保護您的電腦」（本程式沒有向微軟購買程式碼簽章），按「其他資訊 → 仍要執行」即可。
+>
+> **Download (Windows)**: get `Media-Converter-Setup-<version>.exe` (installer, updates itself) or `Media-Converter-Portable-<version>.exe` from [Releases](https://github.com/alanchang940408/media-converter/releases/latest). Downloaded the ZIP of this repo? Unzip it and double-click **`安裝 Media Converter.cmd`** (Install Media Converter) — it downloads and starts the latest installer. Windows SmartScreen may warn on first launch (the app is not code-signed): **More info → Run anyway**.
+
 ---
 
 ## 繁體中文
@@ -112,15 +118,20 @@ Media Converter 是一套桌面批次轉檔程式，結合了兩種常見的工�
 
 ### Premiere Pro／After Effects 面板
 
-類似 Adobe Media Encoder 的「傳送到 Media Encoder」：在 Premiere Pro 或 After Effects 按一個按鈕，就把序列或合成輸出成高品質母片，再交給 Media Converter 用你勾選的預設集轉檔。
+在 Premiere Pro 或 After Effects 裡選好 Media Converter 的預設集和檔名，按一個按鈕就得到轉好的檔案。
 
-- **支援版本**：Premiere Pro CC 2019（13.0）以上、After Effects CC 2019（16.0）以上，兩個程式共用同一個面板（CEP）。
-- **安裝**：在 Media Converter 開啟「設定 → Adobe 整合」→「安裝面板」，重新啟動 Premiere Pro／After Effects，再從「視窗 → 擴充功能 → Media Converter」開啟。面板有數位簽章（自簽憑證），裝在使用者自己的 `%APPDATA%\Adobe\CEP\extensions\`：不需要系統管理員權限，也不用改登錄檔（不必開 PlayerDebugMode）。
-- **使用**：勾選一或多個預設集（會記住上次的選擇）、選輸出資料夾（預設與專案檔相同），按「輸出並轉檔」。
-  - Premiere Pro：輸出作用中的序列（整個序列或入點到出點），母片用 Premiere 內建的「Apple ProRes 422 HQ」輸出預設（.epr）；找不到時可按「選擇 .epr…」自己指定。
-  - After Effects：輸出「專案」面板中選取的合成（沒選就用目前開啟的合成），透過算圖佇列使用「High Quality」等內建輸出模組範本（ProRes 422）。原本排在佇列裡的項目算圖期間會暫停，之後恢復原狀。
+> **注意：這不是 Adobe Media Encoder 那種「一次導出」。** 面板分兩段進行：先由 Premiere Pro／After Effects 輸出一支高品質母片（ProRes），再交給 Media Converter 用你選的預設集轉檔，母片轉完自動刪除。它省掉的是「手動輸出、再拖進 Media Converter」這些步驟，花的時間和手動做兩次差不多。從 Premiere／After Effects 的「匯出」一次輸出成最終格式，目前還不支援。
+
+- **支援版本**：Premiere Pro CC 2019（13.0）以上、After Effects CC 2019（16.0）以上，兩個程式共用同一個面板（CEP），僅限 Windows。
+- **安裝**：在 Media Converter 開啟「設定 → Adobe 整合」→「安裝面板」，重新啟動 Premiere Pro／After Effects，再從「視窗 → 擴充功能 → Media Converter」開啟。面板有數位簽章（自簽憑證），裝在使用者自己的 `%APPDATA%\Adobe\CEP\extensions\`：不需要系統管理員權限，也不用改登錄檔（不必開 PlayerDebugMode）。Media Converter 更新後會自動更新已安裝的面板，重新啟動 Premiere Pro／After Effects 即可。
+- **使用**：
+  - 「輸出」區每一列是一個輸出：用下拉選單選預設集（依分類分組，下方顯示格式摘要），可以修改檔名（預設為序列／合成名稱，旁邊顯示副檔名）。按「＋ 新增輸出」可以一次轉成多種格式；檔名重複或含有不能用的字元時，該列會標紅，也無法開始。
+  - 選輸出資料夾（與專案檔相同／與 Media Converter 預設相同／自訂資料夾），按「輸出並轉檔」。
+  - Premiere Pro：輸出作用中的序列（「範圍」可選整個序列或入點到出點），母片用 Premiere 內建的「Apple ProRes 422 HQ」輸出預設，Premiere 會顯示自己的輸出進度。
+  - After Effects：輸出「專案」面板中選取的合成（沒選就用目前開啟的合成）。面板會先自動儲存專案，再用 aerender 在背景算圖：After Effects 可以繼續使用，面板顯示進度與剩餘時間，也可以取消（背景算的是存檔當下的版本）。專案要先存過檔；合成不能同名，也不能已經放在 After Effects 自己的算圖佇列裡。
 - 母片存在 `%APPDATA%\Media Converter\bridge\intermediates\`，所有轉檔成功後自動刪除。Media Converter 沒開時，面板會自動啟動它。
 - 面板和 Media Converter 只透過 `bridge` 資料夾交換 JSON（格式見 `src/shared/bridge.ts`），沒有網路連線。
+- Adobe、Premiere Pro、After Effects、Adobe Media Encoder 是 Adobe Inc. 的商標。本專案與 Adobe 沒有關係，也未經 Adobe 認可或贊助。
 
 ### 支援格式
 
@@ -205,6 +216,8 @@ npm run release:patch    # 修正：0.1.0 → 0.1.1
 npm run release:minor    # 新功能：0.1.0 → 0.2.0
 node scripts/release.mjs patch --dry-run   # 只檢查、不做任何變更
 ```
+
+> **目前的做法**：推送 `v*` 標籤**不會**自動發佈。正式版在維護者的電腦上打包並發佈到 [Releases](https://github.com/alanchang940408/media-converter/releases)，因為 Adobe 面板的簽章憑證只放在本機，GitHub Actions 打包的安裝檔不會含面板。下面描述的 GitHub Actions 流程仍可用 `workflow_dispatch` 試跑。
 
 `scripts/release.mjs` 會確認工作目錄是乾淨的、分支沒有落後遠端，然後執行 `npm version`（更新 `package.json` 與 `package-lock.json`、建立 commit「vX.Y.Z」和標籤 `vX.Y.Z`），再 `git push --follow-tags`。
 
@@ -351,15 +364,20 @@ For example, `{exifdate}_{counter:3}` turns photos into `2026-07-15_001.jpg`, `2
 
 ### Premiere Pro / After Effects panel
 
-Like Adobe Media Encoder's "Send to Media Encoder": one button in Premiere Pro or After Effects renders the sequence or composition to a high-quality master, then Media Converter converts it with the presets you tick.
+Pick Media Converter presets and file names inside Premiere Pro or After Effects, press one button, and get the converted files.
 
-- **Versions**: Premiere Pro CC 2019 (13.0) and later, After Effects CC 2019 (16.0) and later; one CEP panel serves both.
-- **Install**: in Media Converter open **Settings → Adobe integration → Install panel**, restart Premiere Pro / After Effects, then open **Window → Extensions → Media Converter**. The panel is signed (self-signed certificate) and goes into your own `%APPDATA%\Adobe\CEP\extensions\`: no admin rights, no registry change (PlayerDebugMode is not needed).
-- **Use**: tick one or more presets (remembered), pick the output folder (default: next to the project file) and press **Render & Convert**.
-  - Premiere Pro: renders the active sequence (entire, or In to Out) with Premiere's built-in "Apple ProRes 422 HQ" export preset (.epr); if it is missing, choose any .epr with **Choose .epr…**.
-  - After Effects: renders the compositions selected in the Project panel (or the open one) through the render queue with a built-in output module template such as "High Quality" (ProRes 422). Items you had queued are paused during the render and restored afterwards.
+> **Note: this is not a one-pass export like Adobe Media Encoder.** The panel works in two steps: Premiere Pro / After Effects first render a high-quality master (ProRes), then Media Converter converts it with the presets you chose and deletes the master. It saves you the manual "export, then drag into Media Converter" steps, but takes about as long as doing both yourself. Exporting straight to the final format from the host's Export menu is not supported yet.
+
+- **Versions**: Premiere Pro CC 2019 (13.0) and later, After Effects CC 2019 (16.0) and later; one CEP panel serves both; Windows only.
+- **Install**: in Media Converter open **Settings → Adobe integration → Install panel**, restart Premiere Pro / After Effects, then open **Window → Extensions → Media Converter**. The panel is signed (self-signed certificate) and goes into your own `%APPDATA%\Adobe\CEP\extensions\`: no admin rights, no registry change (PlayerDebugMode is not needed). When Media Converter updates, it updates an installed panel too; restart Premiere Pro / After Effects afterwards.
+- **Use**:
+  - Each row under **Outputs** is one output: pick a preset from the dropdown (grouped by category, with a format summary) and edit the file name if you like (default: the sequence / comp name; the extension is shown next to it). **+ Add output** converts to several formats at once; a row with a duplicate file name or characters that are not allowed turns red and blocks the start.
+  - Pick the output folder (next to the project file / Media Converter's default / a custom folder) and press **Render & Convert**.
+  - Premiere Pro: renders the active sequence (**Range**: entire sequence or In to Out) with Premiere's built-in "Apple ProRes 422 HQ" export preset; Premiere shows its own export progress.
+  - After Effects: renders the compositions selected in the Project panel (or the open one). The panel saves the project first and renders in the background with aerender: After Effects stays usable, the panel shows progress and time left, and you can cancel (the background render uses the version saved at that moment). The project must have been saved once; comps must have unique names and must not already be in After Effects' own render queue.
 - Masters go to `%APPDATA%\Media Converter\bridge\intermediates\` and are deleted once all of their conversions succeeded. If Media Converter is not running, the panel starts it.
 - The panel and Media Converter only exchange JSON files through the `bridge` folder (format: `src/shared/bridge.ts`); no network.
+- Adobe, Premiere Pro, After Effects and Adobe Media Encoder are trademarks of Adobe Inc. This project is not affiliated with, endorsed or sponsored by Adobe.
 
 ### Supported formats
 
@@ -440,6 +458,8 @@ npm run release:patch    # fixes:        0.1.0 → 0.1.1
 npm run release:minor    # new features: 0.1.0 → 0.2.0
 node scripts/release.mjs patch --dry-run   # checks only, changes nothing
 ```
+
+> **Current practice**: pushing a `v*` tag does **not** publish anything. Releases are built on the maintainer's machine and published to [Releases](https://github.com/alanchang940408/media-converter/releases), because the Adobe panel's signing certificate only exists locally (installers built by GitHub Actions would lack the panel). The GitHub Actions flow described below can still be test-run with `workflow_dispatch`.
 
 `scripts/release.mjs` checks that the working tree is clean and the branch is not behind its upstream, runs `npm version` (bumps `package.json` + `package-lock.json`, commits "vX.Y.Z", tags `vX.Y.Z`) and then `git push --follow-tags`.
 

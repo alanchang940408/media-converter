@@ -14,9 +14,10 @@ name: Release
 #   gh workflow run release.yml -f dry_run=true -f all_platforms=true   # Windows + macOS + Linux
 #   gh workflow run release.yml --ref v0.1.2 -f dry_run=false           # real publish of an existing tag (= the tag push)
 
+# Tag pushes do NOT trigger this workflow any more: releases are built and published from the maintainer's machine,
+# because the Adobe panel's signing certificate (adobe/.cert) only exists there and CI-built installers would lack the
+# panel. workflow_dispatch still works (dry run by default).
 on:
-  push:
-    tags: ['v*']
   workflow_dispatch:
     inputs:
       dry_run:

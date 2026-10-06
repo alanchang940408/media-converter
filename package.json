@@ -1,7 +1,7 @@
 {
   "name": "media-converter",
   "productName": "Media Converter",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Batch video, audio and image converter (AME-style encode queue + XnConvert-style image actions)",
   "author": "Media Converter contributors",
   "license": "MIT",

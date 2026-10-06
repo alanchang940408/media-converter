@@ -58,7 +58,7 @@ npmRebuild: false
 # releases/latest never points at a release whose latest.yml / installers are still missing.
 publish:
   provider: github
-  owner: alan940408
+  owner: alanchang940408
   repo: media-converter
   releaseType: release
 
