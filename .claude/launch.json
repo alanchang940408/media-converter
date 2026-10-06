@@ -6,6 +6,12 @@
       "runtimeExecutable": "npm",
       "runtimeArgs": ["run", "dev:web"],
       "port": 5199
+    },
+    {
+      "name": "panel",
+      "runtimeExecutable": "python",
+      "runtimeArgs": ["-m", "http.server", "5288", "--bind", "127.0.0.1", "--directory", "adobe/panel"],
+      "port": 5288
     }
   ]
 }

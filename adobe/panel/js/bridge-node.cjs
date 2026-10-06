@@ -80,19 +80,47 @@ function makeIntermediateDir(bridgeDir, id) {
   return dir
 }
 
+/** Copy of opts.outputs entries ({ presetId, nameTemplate? }); anything else is copied as is for validateRequest. */
+function copyOutputs(outputs) {
+  return outputs.map((o) => {
+    if (!o || typeof o !== 'object') return o
+    const c = { presetId: o.presetId }
+    if (o.nameTemplate !== undefined) c.nameTemplate = o.nameTemplate
+    return c
+  })
+}
+
+/** Unique preset ids of the outputs, in order (what an older Media Converter, which ignores outputs, converts with). */
+function outputPresetIds(outputs) {
+  const ids = []
+  for (const o of outputs) {
+    const id = o && typeof o === 'object' ? o.presetId : undefined
+    if (typeof id === 'string' && id && ids.indexOf(id) < 0) ids.push(id)
+  }
+  return ids
+}
+
+/**
+ * opts: { id, host, files, presetIds?, outputs?: [{ presetId, nameTemplate? }], outputDir, nameTemplate?, deleteAfter?,
+ *         start?, createdAt? }. With outputs, request.outputs is a copy of them and presetIds (when not given) their
+ *         unique preset ids, so an older app still converts with the right presets (without the per-output names).
+ */
 function buildRequest(opts) {
-  return {
+  const hasOutputs = Array.isArray(opts.outputs)
+  const req = {
     bridgeVersion: BRIDGE_VERSION,
     id: opts.id,
     host: opts.host,
     files: opts.files.slice(),
-    presetIds: opts.presetIds.slice(),
+    presetIds: Array.isArray(opts.presetIds) ? opts.presetIds.slice() : hasOutputs ? outputPresetIds(opts.outputs) : [],
     outputDir: opts.outputDir || null,
     nameTemplate: opts.nameTemplate === undefined ? null : opts.nameTemplate,
     deleteAfter: opts.deleteAfter === undefined ? true : !!opts.deleteAfter,
     start: opts.start === undefined ? true : !!opts.start,
     createdAt: opts.createdAt || Date.now()
   }
+  if (hasOutputs) req.outputs = copyOutputs(opts.outputs)
+  return req
 }
 
 /** Problems with a request object (empty array = well-formed per src/shared/bridge.ts BridgeRequest). */
@@ -113,6 +141,17 @@ function validateRequest(req) {
   }
   if (!(req.nameTemplate === undefined || req.nameTemplate === null || typeof req.nameTemplate === 'string')) {
     errs.push('nameTemplate must be a string or null')
+  }
+  if (req.outputs !== undefined) {
+    const okOutput = (o) =>
+      !!o &&
+      typeof o === 'object' &&
+      typeof o.presetId === 'string' &&
+      !!o.presetId &&
+      (o.nameTemplate === undefined || o.nameTemplate === null || typeof o.nameTemplate === 'string')
+    if (!Array.isArray(req.outputs) || !req.outputs.length || !req.outputs.every(okOutput)) {
+      errs.push('outputs must be a non-empty array of { presetId: non-empty string, nameTemplate?: string or null }')
+    }
   }
   if (typeof req.deleteAfter !== 'boolean') errs.push('deleteAfter must be a boolean')
   if (typeof req.start !== 'boolean') errs.push('start must be a boolean')

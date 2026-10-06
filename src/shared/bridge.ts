@@ -9,6 +9,8 @@
 //
 // The panel launches info.exePath when Media Converter is not running; pending inbox files are processed on startup.
 
+import type { VideoPresetSettings } from './types'
+
 export const BRIDGE_VERSION = 1
 
 export interface BridgePreset {
@@ -21,6 +23,19 @@ export interface BridgePreset {
   builtIn: boolean
   /** Short human summary, e.g. "MP4 · H.264 · 1920×1080". */
   summary: string
+  /** Output file extension without the dot ("mp4", "mov"…): the panel shows "name.ext" and spots duplicate names.
+   *  Older apps omit it. */
+  ext?: string
+  /** The preset's full settings: the panel maps them onto Premiere Pro / After Effects export settings so the host can
+   *  write the final file in one export. Older apps omit it (the panel then converts through an intermediate). */
+  settings?: VideoPresetSettings
+}
+
+/** One output of a request: a preset with its own output file name. */
+export interface BridgeOutput {
+  presetId: string
+  /** Output file name template (same tokens as the app, e.g. "{name}"; a plain name is used as is); null = app default. */
+  nameTemplate?: string | null
 }
 
 export interface BridgeInfo {
@@ -46,8 +61,12 @@ export interface BridgeRequest {
   host: string
   /** Absolute paths of rendered intermediates (or any media files). */
   files: string[]
-  /** One job per file × preset. Unknown ids are reported in the result and skipped. */
+  /** One job per file × preset. Unknown ids are reported in the result and skipped. Panels that send `outputs` still
+   *  fill this with the outputs' preset ids, so an older app keeps working (without the per-output names). */
   presetIds: string[]
+  /** One job per file × output. When present and non-empty it replaces presetIds + nameTemplate (the same preset may
+   *  appear twice with different names). Unknown / non-video presets are reported and skipped, like presetIds. */
+  outputs?: BridgeOutput[]
   /** null = next to the source (for intermediates that means bridge/intermediates — so the panel should always send one). */
   outputDir: string | null
   /** Output file name template (same tokens as the app); null = app default. */

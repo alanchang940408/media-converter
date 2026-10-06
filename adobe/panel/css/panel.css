@@ -1,6 +1,7 @@
-/* Dark panel close to Premiere Pro / After Effects; --bg follows the host skin (js/main.js applyTheme).
-   Premiere Pro CC 2019 runs CEP 9 = Chromium 61: no flexbox `gap` (Chromium 84), no :focus-visible (86) - spacing uses
-   sibling margins instead. */
+/* Dark panel close to Premiere Pro / After Effects; --bg follows the host skin (js/main.js applyTheme, which also derives
+   the dark field colours from it so dropdowns stay clearly lighter than any dark skin).
+   Premiere Pro CC 2019 runs CEP 9 = Chromium 61: no flexbox `gap` (Chromium 84), no :focus-visible (86), no `inset`
+   shorthand, aspect-ratio, :is() or :where() - spacing uses sibling margins instead (adobe/tests/panel-compat.test.cjs). */
 :root {
   --bg: #232323;
   --fg: #d4d4d4;
@@ -8,8 +9,24 @@
   --field: rgba(0, 0, 0, 0.28);
   --field-border: rgba(255, 255, 255, 0.1);
   --hover: rgba(255, 255, 255, 0.06);
+  --card-bg: rgba(255, 255, 255, 0.035);
+  --card-border: rgba(255, 255, 255, 0.12);
+  --track: rgba(0, 0, 0, 0.35);
+  /* dropdowns, buttons, text inputs (dark values are recomputed from the host skin in applyTheme) */
+  --sel-bg: #3d3d3d;
+  --sel-bg-hover: #494949;
+  --sel-border: #5f5f5f;
+  --sel-border-hover: #777777;
+  --sel-fg: #f0f0f0;
+  --opt-bg: #373737;
+  --opt-fg: #f0f0f0;
+  --optgroup-fg: #b8b8b8;
+  --input-bg: #171717;
+  --input-fg: #f0f0f0;
   --accent: #2d8ceb;
   --accent-hover: #4a9df0;
+  /* accent as text / outline on the panel background (fills such as button.primary keep --accent) */
+  --accent-text: #4ea1f3;
   --ok: #6cc070;
   --warn: #e0b04a;
   --error: #ef6b62;
@@ -17,10 +34,27 @@
 }
 :root.light {
   --fg: #2a2a2a;
-  --muted: #666;
+  --muted: #5e5e5e;
   --field: rgba(255, 255, 255, 0.6);
   --field-border: rgba(0, 0, 0, 0.15);
   --hover: rgba(0, 0, 0, 0.05);
+  --card-bg: rgba(255, 255, 255, 0.4);
+  --card-border: rgba(0, 0, 0, 0.16);
+  --track: rgba(0, 0, 0, 0.12);
+  --sel-bg: #fbfbfb;
+  --sel-bg-hover: #ffffff;
+  --sel-border: #8e8e8e;
+  --sel-border-hover: #6a6a6a;
+  --sel-fg: #1c1c1c;
+  --opt-bg: #ffffff;
+  --opt-fg: #1c1c1c;
+  --optgroup-fg: #4a4a4a;
+  --input-bg: #ffffff;
+  --input-fg: #1c1c1c;
+  --accent-text: #00468c;
+  --ok: #2e7d32;
+  --warn: #8a5d00;
+  --error: #c0392b;
 }
 
 * {
@@ -40,6 +74,21 @@ body {
   display: none !important;
 }
 
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.18);
+  border-radius: 4px;
+}
+:root.light ::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.25);
+}
+
 #app {
   display: flex;
   flex-direction: column;
@@ -54,9 +103,35 @@ main {
   flex-direction: column;
   flex: 1;
   min-height: 0;
+  min-width: 0;
 }
 main > * + * {
-  margin-top: 10px;
+  margin-top: 8px;
+}
+/* settings scroll; the start button, progress and log stay visible below */
+.scroll {
+  position: relative;
+  flex: 1;
+  min-height: 60px;
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+fieldset.plain {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  min-width: 0;
+}
+fieldset.plain > * + * {
+  margin-top: 12px;
+}
+.footer {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+}
+.footer > * + * {
+  margin-top: 8px;
 }
 
 .top {
@@ -76,18 +151,16 @@ main > * + * {
 .block {
   display: flex;
   flex-direction: column;
+  min-width: 0;
 }
 .block > * + * {
   margin-top: 5px;
-}
-.grow-block {
-  flex: 1;
-  min-height: 90px;
 }
 .label-row,
 .row {
   display: flex;
   align-items: center;
+  min-width: 0;
 }
 .label-row > * + *,
 .row > * + * {
@@ -103,6 +176,7 @@ main > * + * {
 .row-label {
   color: var(--muted);
   min-width: 4.5em;
+  flex: none;
 }
 .grow {
   flex: 1;
@@ -116,6 +190,9 @@ main > * + * {
 }
 .strong {
   font-weight: 600;
+}
+.warn-text {
+  color: var(--warn);
 }
 .ellipsis {
   white-space: nowrap;
@@ -135,77 +212,27 @@ main > * + * {
   color: var(--warn);
 }
 
-.list {
-  flex: 1;
-  min-height: 0;
-  overflow-y: auto;
-  background: var(--field);
-  border: 1px solid var(--field-border);
-  border-radius: 3px;
-  padding: 2px 0;
-}
-.list .cat {
-  color: var(--muted);
-  font-size: 0.9em;
-  padding: 5px 8px 2px;
-  text-transform: none;
-}
-.list .empty {
-  color: var(--muted);
-  padding: 8px;
-}
-.preset {
-  display: flex;
-  align-items: flex-start;
-  padding: 3px 8px;
-  cursor: pointer;
-}
-.preset > * + * {
-  margin-left: 6px;
-}
-.preset:hover {
-  background: var(--hover);
-}
-.preset input {
-  margin: 2px 0 0;
-  accent-color: var(--accent);
-}
-.preset-body {
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-}
-.preset-name {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.preset-summary {
-  color: var(--muted);
-  font-size: 0.9em;
-}
-
+/* ------------------------------------------------------------------ controls */
 button,
-select {
+select,
+input {
   font: inherit;
-  color: var(--fg);
-  background: var(--field);
-  border: 1px solid var(--field-border);
-  border-radius: 3px;
-  padding: 3px 8px;
   outline: none;
-}
-select.full {
-  width: 100%;
+  margin: 0;
 }
 button {
+  color: var(--sel-fg);
+  background: var(--sel-bg);
+  border: 1px solid var(--sel-border);
+  border-radius: 3px;
+  padding: 3px 8px;
   cursor: pointer;
 }
 button:hover:not(:disabled) {
-  background: var(--hover);
+  background: var(--sel-bg-hover);
+  border-color: var(--sel-border-hover);
 }
-button:focus,
-select:focus {
+button:focus {
   border-color: var(--accent);
 }
 button:disabled {
@@ -214,9 +241,17 @@ button:disabled {
 }
 button.link {
   background: none;
-  border: none;
-  color: var(--accent);
+  border: 1px solid transparent;
+  color: var(--accent-text);
   padding: 0 2px;
+}
+button.link:hover:not(:disabled) {
+  background: none;
+  border-color: transparent;
+  text-decoration: underline;
+}
+button.link:focus {
+  border-color: var(--accent-text);
 }
 button.small-btn {
   flex: none;
@@ -232,10 +267,278 @@ button.primary {
 }
 button.primary:hover:not(:disabled) {
   background: var(--accent-hover);
+  border-color: var(--accent-hover);
+}
+button.primary:focus {
+  border-color: #fff;
 }
 
+/* Dropdowns: never the flat grey native look - a lighter field, a visible border and a chevron. */
+select {
+  -webkit-appearance: none;
+  display: block;
+  min-width: 0;
+  height: 23px;
+  padding: 2px 24px 2px 7px;
+  color: var(--sel-fg);
+  background-color: var(--sel-bg);
+  background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%23e6e6e6' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 8px center;
+  background-size: 10px 6px;
+  border: 1px solid var(--sel-border);
+  border-radius: 3px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: pointer;
+}
+:root.light select {
+  background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%23383838' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+}
+select:hover:not(:disabled) {
+  background-color: var(--sel-bg-hover);
+  border-color: var(--sel-border-hover);
+}
+select:focus {
+  border-color: var(--accent);
+}
+select:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+select.full {
+  width: 100%;
+}
+/* Windows Chromium paints the popup list with these: solid colours, so no option ever looks disabled. */
+select option,
+select optgroup {
+  background-color: var(--opt-bg);
+  color: var(--opt-fg);
+}
+select optgroup {
+  color: var(--optgroup-fg);
+  font-style: normal;
+  font-weight: 600;
+}
+select optgroup option {
+  color: var(--opt-fg);
+  font-weight: 400;
+}
+
+input[type='text'] {
+  display: block;
+  min-width: 0;
+  height: 23px;
+  padding: 2px 6px;
+  color: var(--input-fg);
+  background: var(--input-bg);
+  border: 1px solid var(--sel-border);
+  border-radius: 3px;
+  user-select: text;
+}
+input[type='text']:hover:not(:disabled) {
+  border-color: var(--sel-border-hover);
+}
+input[type='text']:focus {
+  border-color: var(--accent);
+}
+input[type='text']:disabled {
+  opacity: 0.6;
+}
+input[type='text'].invalid {
+  border-color: var(--error);
+}
+input[type='text']::placeholder {
+  color: var(--muted);
+  opacity: 1;
+}
+
+/* ------------------------------------------------------------------ output rows */
+.outputs > * + * {
+  margin-top: 6px;
+}
+.out-row {
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
+  border-radius: 4px;
+  padding: 6px 7px;
+  min-width: 0;
+}
+.out-row.invalid {
+  border-color: var(--error);
+}
+.out-row > * + * {
+  margin-top: 4px;
+}
+.out-line {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+.out-line > * + * {
+  margin-left: 6px;
+}
+.out-num {
+  flex: none;
+  min-width: 1em;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+}
+.out-line select,
+.out-line input[type='text'] {
+  flex: 1;
+  width: 10px;
+}
+.out-summary {
+  padding-left: calc(1em + 6px);
+}
+/* one export / two steps: a coloured pill (+ the reason for two steps), wraps on narrow panels */
+.out-mode {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  padding-left: calc(1em + 6px);
+  min-width: 0;
+}
+.mode-pill {
+  flex: none;
+  max-width: 100%;
+  margin-right: 6px;
+  padding: 0 6px;
+  border: 1px solid currentColor;
+  border-radius: 8px;
+  font-weight: 600;
+  line-height: 1.5;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.out-mode.direct .mode-pill {
+  color: var(--ok);
+}
+.out-mode.two-step .mode-pill {
+  color: var(--warn);
+}
+.mode-why {
+  min-width: 0;
+  color: var(--warn);
+  word-break: break-word;
+}
+.plan-note {
+  color: var(--muted);
+  word-break: break-word;
+}
+.plan-note.two-step {
+  color: var(--warn);
+}
+.out-label {
+  flex: none;
+  min-width: 1em;
+  max-width: 40%;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.out-ext {
+  flex: none;
+  max-width: 6em;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.out-warn {
+  color: var(--error);
+  word-break: break-word;
+}
+button.icon-btn {
+  flex: none;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  line-height: 20px;
+  font-size: 15px;
+  text-align: center;
+  color: var(--muted);
+  background: none;
+  border-color: transparent;
+}
+button.icon-btn:hover:not(:disabled) {
+  color: var(--error);
+  background: var(--hover);
+  border-color: transparent;
+}
+button.icon-btn:focus {
+  border-color: var(--accent);
+}
+button.add-btn {
+  width: 100%;
+  background: none;
+  border: 1px dashed var(--sel-border);
+  color: var(--accent-text);
+  padding: 4px 8px;
+}
+button.add-btn:hover:not(:disabled),
+button.add-btn:focus {
+  background: var(--hover);
+  border-color: var(--accent-text);
+}
+
+/* ------------------------------------------------------------------ progress (After Effects background render) */
+.progress {
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
+  border-radius: 4px;
+  padding: 6px 7px;
+}
+.progress-head {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+.progress-head > * + * {
+  margin-left: 6px;
+}
+.bar {
+  height: 6px;
+  margin-top: 6px;
+  border-radius: 3px;
+  background: var(--track);
+  overflow: hidden;
+}
+.bar-fill {
+  height: 100%;
+  width: 0;
+  background: var(--accent);
+  border-radius: 3px;
+  transition: width 0.25s linear;
+}
+/* Premiere Pro shows its own export progress: a sliding segment says "working" without a percentage */
+.bar.endless .bar-fill {
+  width: 30%;
+  transition: none;
+  animation: mc-endless 1.4s ease-in-out infinite;
+}
+@keyframes mc-endless {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(340%);
+  }
+}
+.progress-text {
+  margin-top: 4px;
+  font-variant-numeric: tabular-nums;
+  word-break: break-word;
+}
+
+/* ------------------------------------------------------------------ log */
 .log {
-  height: 96px;
+  height: 84px;
   flex: none;
   overflow-y: auto;
   background: var(--field);
@@ -257,6 +560,7 @@ button.primary:hover:not(:disabled) {
   font-variant-numeric: tabular-nums;
 }
 .log-msg {
+  min-width: 0;
   word-break: break-word;
 }
 .log-line.ok .log-msg {

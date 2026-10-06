@@ -2,8 +2,9 @@
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { AdobePanelInstaller, PANEL_BUNDLE_ID, readManifestVersion } from '../../src/main/bridge/panelInstall'
+import { AdobePanelInstaller, compareVersions, PANEL_BUNDLE_ID, readManifestVersion, shouldAutoUpdatePanel } from '../../src/main/bridge/panelInstall'
 import { t } from '../../src/main/i18n'
+import type { AdobePanelStatus } from '../../src/shared/types'
 import { makeTempDir } from './helpers'
 
 let tmp: { dir: string; cleanup: () => void }
@@ -102,5 +103,89 @@ describe('Adobe panel install', () => {
     write(join(dir, 'CSXS', 'manifest.xml'), `<ExtensionManifest ExtensionBundleId="x"><Extension ExtensionBundleVersion="9"/></ExtensionManifest>`)
     expect(await readManifestVersion(dir)).toBeUndefined()
     expect(await readManifestVersion(join(tmp.dir, 'missing'))).toBeUndefined()
+  })
+})
+
+describe('Adobe panel auto-update', () => {
+  const status = (over: Partial<AdobePanelStatus>): AdobePanelStatus => ({ bundled: true, installed: true, path: 'x', ...over })
+
+  it('compares versions numerically', () => {
+    expect(compareVersions('0.2.0', '0.1.9')).toBe(1)
+    expect(compareVersions('0.10.0', '0.9.0')).toBe(1)
+    expect(compareVersions('1.2', '1.2.0')).toBe(0)
+    expect(compareVersions(' 1.2.0 ', '1.2.0')).toBe(0)
+    expect(compareVersions('1.2.0', '1.10.0')).toBe(-1)
+    expect(compareVersions('2', '10')).toBe(-1)
+    expect(compareVersions('1.0.0-beta', '0.1.0')).toBeNull()
+    expect(compareVersions(undefined, '0.1.0')).toBeNull()
+    expect(compareVersions('0.1.0', '')).toBeNull()
+  })
+
+  it('updates only an installed panel that is older than the bundled one', () => {
+    expect(shouldAutoUpdatePanel(status({ installedVersion: '0.1.0', bundledVersion: '0.2.0' }))).toBe(true)
+    expect(shouldAutoUpdatePanel(status({ installedVersion: '0.9.0', bundledVersion: '0.10.0' }))).toBe(true)
+    expect(shouldAutoUpdatePanel(status({ installedVersion: '0.2.0', bundledVersion: '0.2.0' }))).toBe(false)
+    expect(shouldAutoUpdatePanel(status({ installedVersion: '0.3.0', bundledVersion: '0.2.0' }))).toBe(false)
+    // never installs on its own
+    expect(shouldAutoUpdatePanel(status({ installed: false, bundledVersion: '0.2.0' }))).toBe(false)
+    expect(shouldAutoUpdatePanel(status({ bundled: false, installedVersion: '0.1.0' }))).toBe(false)
+    // a version that cannot be read is left alone
+    expect(shouldAutoUpdatePanel(status({ bundledVersion: '0.2.0' }))).toBe(false)
+    expect(shouldAutoUpdatePanel(status({ installedVersion: '0.1.0' }))).toBe(false)
+  })
+
+  it('autoUpdate replaces an older installed panel and leaves everything else alone', async () => {
+    const panel = new AdobePanelInstaller({ sourceDir: source, extensionsDir: extensions })
+    const target = join(extensions, PANEL_BUNDLE_ID)
+
+    // not installed: nothing happens
+    buildPanel('0.2.0')
+    expect(await panel.autoUpdate()).toEqual({ updated: false, from: undefined })
+    expect(existsSync(target)).toBe(false)
+
+    // installed 0.1.0, bundled 0.2.0: updated (stale files gone)
+    buildPanel('0.1.0', { 'client/old.js': 'old' })
+    await panel.install()
+    buildPanel('0.2.0', { 'client/new.js': 'new' })
+    expect(await panel.autoUpdate()).toEqual({ updated: true, from: '0.1.0', to: '0.2.0' })
+    expect(await readManifestVersion(target)).toBe('0.2.0')
+    expect(existsSync(join(target, 'client', 'old.js'))).toBe(false)
+    expect(readFileSync(join(target, 'client', 'new.js'), 'utf8')).toBe('new')
+
+    // same version: untouched
+    writeFileSync(join(target, 'client', 'marker.txt'), 'mine')
+    expect(await panel.autoUpdate()).toEqual({ updated: false, from: '0.2.0' })
+    expect(existsSync(join(target, 'client', 'marker.txt'))).toBe(true)
+
+    // the installed panel is newer than this build's (an older app started): never downgraded
+    buildPanel('0.1.5')
+    expect(await panel.autoUpdate()).toEqual({ updated: false, from: '0.2.0' })
+    expect(await readManifestVersion(target)).toBe('0.2.0')
+    expect(readdirSync(extensions).sort()).toEqual(['com.other.panel', PANEL_BUNDLE_ID])
+  })
+
+  it('a build without the panel never touches the installed one', async () => {
+    buildPanel('0.1.0')
+    await new AdobePanelInstaller({ sourceDir: source, extensionsDir: extensions }).install()
+    const panel = new AdobePanelInstaller({ sourceDir: join(tmp.dir, 'nope'), extensionsDir: extensions })
+    expect(await panel.autoUpdate()).toEqual({ updated: false, from: '0.1.0' })
+    expect(await readManifestVersion(join(extensions, PANEL_BUNDLE_ID))).toBe('0.1.0')
+  })
+
+  it('install, uninstall and autoUpdate run one at a time', async () => {
+    buildPanel('0.1.0')
+    const panel = new AdobePanelInstaller({ sourceDir: source, extensionsDir: extensions })
+    await panel.install()
+    buildPanel('0.2.0')
+    // started together (startup update + a click in Settings): each sees the previous one's result
+    const [up, inst, un] = await Promise.all([panel.autoUpdate(), panel.install(), panel.uninstall()])
+    expect(up).toEqual({ updated: true, from: '0.1.0', to: '0.2.0' })
+    expect(inst.installedVersion).toBe('0.2.0')
+    expect(un.installed).toBe(false)
+    expect(readdirSync(extensions)).toEqual(['com.other.panel'])
+    // a failure does not block the next call
+    const broken = new AdobePanelInstaller({ sourceDir: join(tmp.dir, 'nope'), extensionsDir: extensions })
+    await expect(broken.install()).rejects.toThrow(t('bridge.panelNotBundled'))
+    expect((await broken.uninstall()).installed).toBe(false)
   })
 })

@@ -1,8 +1,10 @@
-// Preset list for the Adobe panel (bridge/info.json): video presets with a localized name and a one-line summary
-// such as "MP4 · H.264 · 1920×1080" (mirrors the renderer's videoSummary, without importing renderer code).
+// Preset list for the Adobe panel (bridge/info.json): video presets with a localized name, a one-line summary
+// such as "MP4 · H.264 · 1920×1080" (mirrors the renderer's videoSummary, without importing renderer code) and the
+// output extension. No Electron imports (the ffmpeg args module is pure).
 import type { BridgePreset } from '../../shared/bridge'
 import type { AudioCodecId, Locale, Preset, VideoCodecId, VideoPresetSettings } from '../../shared/types'
 import { dvdStandard, isAudioOnlyContainer } from '../../shared/videoRules'
+import { outputExtension } from '../ffmpeg/args'
 import { t } from '../i18n'
 
 const VIDEO_CODEC_SHORT: Record<VideoCodecId, string> = {
@@ -72,6 +74,10 @@ export function bridgePresets(presets: readonly Preset[], locale: Locale): Bridg
       category: p.category,
       builtIn: p.builtIn,
       summary: videoPresetSummary(p.settings, locale),
+      // exactly the extension the queue gives the output (the panel shows "name.ext" and spots duplicate names)
+      ext: outputExtension(p.settings),
+      // full settings so the panel can let Premiere Pro / After Effects write the final file directly
+      settings: structuredClone(p.settings),
     })
   }
   return out

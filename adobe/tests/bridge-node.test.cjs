@@ -115,3 +115,57 @@ test('removeDirIfInside only removes folders inside the given parent', () => {
     t.cleanup()
   }
 })
+
+test('outputs: copied into the request; presetIds default to their unique preset ids, in order', () => {
+  const outputs = [
+    { presetId: 'h264-1080p', nameTemplate: '序列 01' },
+    { presetId: 'prores-422', nameTemplate: null },
+    { presetId: 'h264-1080p', nameTemplate: '序列 01 小' },
+    { presetId: 'h264-match' }
+  ]
+  const req = b.buildRequest({ id: 'ppro-x', host: 'premiere', files: [path.resolve('a.mov')], outputs, outputDir: null })
+  assert.deepStrictEqual(req.outputs, outputs)
+  assert.notStrictEqual(req.outputs, outputs)
+  assert.notStrictEqual(req.outputs[0], outputs[0])
+  assert.deepStrictEqual(req.presetIds, ['h264-1080p', 'prores-422', 'h264-match'])
+  assert.deepStrictEqual(b.validateRequest(req), [])
+  // the copy does not follow later edits of the panel's list
+  outputs[0].nameTemplate = 'changed'
+  outputs.push({ presetId: 'later' })
+  assert.strictEqual(req.outputs[0].nameTemplate, '序列 01')
+  assert.strictEqual(req.outputs.length, 4)
+  // explicit presetIds win
+  const both = b.buildRequest({ id: 'ppro-y', host: 'premiere', files: [path.resolve('a.mov')], presetIds: ['h264-match'], outputs: outputs.slice(0, 1) })
+  assert.deepStrictEqual(both.presetIds, ['h264-match'])
+  assert.strictEqual(both.outputs.length, 1)
+})
+
+test('legacy requests (presetIds only) carry no outputs and stay valid', () => {
+  const req = b.buildRequest({ id: 'ae-1', host: 'aftereffects', files: [path.resolve('c.mov')], presetIds: ['h264-match'], outputDir: null })
+  assert.ok(!Object.prototype.hasOwnProperty.call(req, 'outputs'))
+  assert.deepStrictEqual(b.validateRequest(req), [])
+  assert.ok(JSON.parse(JSON.stringify(req)).outputs === undefined)
+})
+
+test('validateRequest checks outputs when present', () => {
+  const base = b.buildRequest({ id: 'ae-2', host: 'aftereffects', files: [path.resolve('c.mov')], presetIds: ['h264-match'], outputDir: null })
+  const ok = (outputs) => b.validateRequest(Object.assign({}, base, { outputs })).length === 0
+  assert.ok(ok([{ presetId: 'h264-match' }]))
+  assert.ok(ok([{ presetId: 'h264-match', nameTemplate: null }, { presetId: 'h264-match', nameTemplate: '{name}_小' }]))
+  assert.ok(!ok([]))
+  assert.ok(!ok('h264-match'))
+  assert.ok(!ok(null))
+  assert.ok(!ok([{ presetId: '' }]))
+  assert.ok(!ok([{ presetId: 42 }]))
+  assert.ok(!ok([{ nameTemplate: 'x' }]))
+  assert.ok(!ok([{ presetId: 'h264-match', nameTemplate: 5 }]))
+  assert.ok(!ok([{ presetId: 'h264-match' }, null]))
+  // buildRequest copies malformed entries as they are, so validateRequest still sees them
+  const bad = b.buildRequest({ id: 'ae-3', host: 'aftereffects', files: [path.resolve('c.mov')], outputs: [{ presetId: 'h264-match' }, 'oops'] })
+  assert.deepStrictEqual(bad.presetIds, ['h264-match'])
+  assert.ok(b.validateRequest(bad).length)
+  // no presets at all: presetIds empty → invalid
+  const none = b.buildRequest({ id: 'ae-4', host: 'aftereffects', files: [path.resolve('c.mov')], outputs: [] })
+  assert.deepStrictEqual(none.presetIds, [])
+  assert.ok(b.validateRequest(none).length)
+})

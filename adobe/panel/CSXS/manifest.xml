@@ -1,10 +1,10 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!-- Media Converter panel ("Send to Media Converter") for Premiere Pro (PPRO) and After Effects (AEFT).
      CEP 9+ (Premiere Pro CC 2019 = CSXS 9, After Effects 2023 = CSXS 11). Must be signed: npm run build:cep. -->
-<ExtensionManifest Version="7.0" ExtensionBundleId="io.github.alan940408.mediaconverter.panel" ExtensionBundleVersion="0.1.0"
+<ExtensionManifest Version="7.0" ExtensionBundleId="io.github.alan940408.mediaconverter.panel" ExtensionBundleVersion="0.2.0"
   ExtensionBundleName="Media Converter" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
   <ExtensionList>
-    <Extension Id="io.github.alan940408.mediaconverter.panel.main" Version="0.1.0" />
+    <Extension Id="io.github.alan940408.mediaconverter.panel.main" Version="0.2.0" />
   </ExtensionList>
   <ExecutionEnvironment>
     <HostList>

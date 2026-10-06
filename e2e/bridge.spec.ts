@@ -85,6 +85,8 @@ test('writes bridge/info.json with the video presets', async () => {
   expect(p720, 'h264-720p in info.presets').toBeTruthy()
   expect(p720!.name).toBeTruthy()
   expect(p720!.summary).toBeTruthy()
+  expect(p720!.ext).toBe('mp4')
+  expect(info.presets.find((p) => p.id === 'prores-422')?.ext).toBe('mov')
   expect(info.presets.map((p) => p.id)).toContain(info.lastVideoPresetId)
   // the folders the panel needs exist
   for (const d of ['inbox', 'results', 'intermediates']) expect(existsSync(join(bridgeDir, d)), d).toBe(true)
@@ -123,6 +125,36 @@ test('inbox request → job runs → results accepted → output written, interm
   // deleteAfter: the intermediate goes once its only job succeeded; the source it was copied from stays
   await expect.poll(() => existsSync(intermediate), { timeout: 15_000, message: intermediate }).toBe(false)
   expect(existsSync(media.video)).toBe(true)
+})
+
+test('outputs: the same preset twice with its own file names, and two outputs with the same name never overwrite', async () => {
+  const id = `e2e-outputs-${Date.now()}`
+  const interDir = join(bridgeDir, 'intermediates', id)
+  mkdirSync(interDir, { recursive: true })
+  const intermediate = join(interDir, basename(media.video))
+  copyFileSync(media.video, intermediate)
+  const stem = `成品 ${id}`
+  // like the panel: presetIds filled from the outputs for older apps
+  sendRequest({
+    ...request(id, [intermediate], ['h264-720p'], true),
+    outputs: [
+      { presetId: 'h264-720p', nameTemplate: stem },
+      { presetId: 'h264-720p', nameTemplate: `${stem} 小` },
+      { presetId: 'h264-1080p', nameTemplate: stem },
+    ],
+  })
+
+  const result = await waitForResult(id)
+  expect(result.status, result.errors.join('\n')).toBe('accepted')
+  expect(result.errors).toEqual([])
+  expect(result.jobIds).toHaveLength(3)
+  const jobs = await waitForJobs(page, result.jobIds, 180_000)
+  for (const j of jobs) expect(j.status, describeJob(j)).toBe('done')
+  const names = result.jobIds.map((jid) => basename(jobs.find((j) => j.id === jid)!.outputPath!))
+  expect(names).toEqual([`${stem}.mp4`, `${stem} 小.mp4`, `${stem} (1).mp4`])
+  for (const j of jobs) expect(existsSync(j.outputPath!), j.outputPath).toBe(true)
+  // deleteAfter waits for every output
+  await expect.poll(() => existsSync(intermediate), { timeout: 15_000, message: intermediate }).toBe(false)
 })
 
 test('unknown presets are reported; deleteAfter never touches files outside bridge/intermediates', async () => {

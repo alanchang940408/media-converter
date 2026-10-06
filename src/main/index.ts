@@ -438,6 +438,17 @@ async function startApp(): Promise<void> {
   void watch.start().catch((err) => console.error('[watch] start failed:', err))
   // writes info.json, then handles requests the panel left in the inbox while the app was closed
   void bridgeService.start().catch((err) => console.error('[bridge] start failed:', err))
+  // an installed Premiere Pro / After Effects panel older than the bundled one is replaced (never installed unasked).
+  // Packaged builds only (dev runs and e2e would otherwise replace the real installed panel with adobe/dist), unless
+  // MC_CEP_EXTENSIONS_DIR redirects the extensions folder.
+  if (app.isPackaged || process.env.MC_CEP_EXTENSIONS_DIR?.trim()) {
+    void panel
+      .autoUpdate()
+      .then((r) => {
+        if (r.updated) console.log(`[panel] updated ${r.from ?? '?'} → ${r.to ?? '?'}`)
+      })
+      .catch((err) => console.warn('[panel] auto-update failed:', err instanceof Error ? err.message : err))
+  }
   // GitHub Releases: first check ~10 s after start, then every 6 h (settings.autoCheckUpdates); off in dev runs
   updater.start()
 }

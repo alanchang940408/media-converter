@@ -4,14 +4,23 @@
 //
 // Panel API (every call returns a JSON string):
 //   MCHost.info()                 -> { ok, host, hostVersion, projectPath, items: [names], canWriteFiles }
-//   MCHost.render(argsJson)       -> { ok, host, files: [abs paths], errors: [..], error?, message?, preset?, template? }
-//        args: { outDir: <existing folder>, range?: 'entire'|'inout', eprPath?: <.epr> (Premiere), appDir?: <install dir> }
+//   MCHost.render(argsJson)       -> { ok, host, files: [abs paths], errors: [..], error?, message?, preset? }   (Premiere)
+//        args: { outDir: <existing folder>, range?: 'entire'|'inout', eprPath?: <.epr>, appDir?: <install dir> }
 //   MCHost.findPreset(appDirJson) -> { ok, path, name }   (Premiere: the .epr used when the panel has none)
-// The panel creates outDir with Node before calling render (After Effects scripts may not be allowed to write files).
+//   MCHost.planBackground(argsJson) (After Effects) -> what aerender.exe (js/aerender.cjs) renders in the background:
+//        args: { templates?: [output module template names, best first] }   (default MCHost.AE_TEMPLATES)
+//        ok:   { ok: true, host, projectPath, aerenderPath,
+//                items: [{ comp, frames, fps, omTemplate, ext: '.mov', baseName }] }
+//        fail: { ok: false, host, error: 'unsavedProject'|'noComps'|'duplicateComp'|'compQueued'|'saveFailed'|'noAerender'|
+//                'busy'|'exception', message, errors }
+//        The project is saved (aerender renders the saved file, as After Effects -> Media Encoder does).
+//        compQueued (message = the comp name): the comp is queued in the Render Queue, and aerender -comp would render
+//        that item (its settings and output modules) instead of adding its own.
+// The panel creates outDir with Node before calling render (host scripts may not be allowed to write files).
 
 var MCHost = (function () {
   var H = {};
-  H.version = '0.1.0';
+  H.version = '0.2.0';
 
   // ---------------------------------------------------------------- JSON (stringify only; input comes from the panel)
   function quote(s) {
@@ -159,68 +168,142 @@ var MCHost = (function () {
     return '.mov';
   }
 
-  // Render the given CompItems through the render queue into outDir (an existing folder). Shared by the panel and
-  // adobe/tests/ae-render-test.jsx. The user's own queued items are parked (render=false) and restored afterwards, and
-  // the items added here are removed again, so the render queue looks the same as before.
-  H.aeRenderComps = function (comps, outDir, opts) {
-    var rq, dir, parked = [], plan = [], files = [], errors = [], used = {}, i, item, om, tpl, ext, base, p, f, status;
-    opts = opts || {};
-    if (!comps || !comps.length) return fail('noComps');
-    rq = app.project.renderQueue;
-    if (rq.rendering) return fail('busy');
-    dir = new Folder(outDir);
-    if (!dir.exists) return fail('noOutDir', outDir);
+  // Output module template for the intermediate: the first of prefs this After Effects has, else (localized template
+  // names) the first template that writes QuickTime (.mov), else '' = the module's default (re-applied when known).
+  function aePickTemplate(om, prefs) {
+    var list = om.templates, i, name, original = '';
+    for (i = 0; i < prefs.length; i++) if (contains(list, prefs[i])) return prefs[i];
+    try { original = String(om.name); } catch (e) {}
+    for (i = 0; i < list.length; i++) {
+      name = list[i];
+      if (/^_HIDDEN/i.test(name)) continue;
+      try { om.applyTemplate(name); } catch (e2) { continue; }
+      if (aeExtFromModule(om) === '.mov') return name;
+    }
+    if (original && contains(list, original)) {
+      try { om.applyTemplate(original); } catch (e3) {}
+    }
+    return '';
+  }
 
-    for (i = 1; i <= rq.numItems; i++) {
-      item = rq.item(i);
-      if (item.status === RQItemStatus.QUEUED) parked.push(item);
+  // aerender.exe next to the After Effects executable (Windows: Support Files\aerender.exe; macOS: next to the .app).
+  function aeRenderBinary() {
+    var dirs = [], i, f;
+    try { if (Folder.appPackage) dirs.push(Folder.appPackage); } catch (e) {}
+    try { if (Folder.startup) dirs.push(Folder.startup); } catch (e2) {}
+    for (i = 0; i < dirs.length; i++) {
+      if ($.os.indexOf('Windows') >= 0) {
+        f = new File(dirs[i].fsName + '/aerender.exe');
+      } else {
+        f = new File((dirs[i].parent ? dirs[i].parent.fsName : dirs[i].fsName) + '/aerender');
+      }
+      if (f.exists) return f;
+    }
+    return null;
+  }
+
+  // CompItems of the whole project with this name (aerender -comp picks a comp by name).
+  function aeCompsNamed(name) {
+    var n = 0, i, it;
+    for (i = 1; i <= app.project.numItems; i++) {
+      it = app.project.item(i);
+      if (it instanceof CompItem && it.name === name) n++;
+    }
+    return n;
+  }
+
+  // Name of the first target comp that has a queueable item in the Render Queue (status Queued or Unqueued), '' = none.
+  // aerender -comp renders the first queueable item of a comp that is already in the queue (with that item's render
+  // settings and output modules, to its paths) instead of adding its own; comps are matched by name, like aerender.
+  function aeQueuedComp(rq, comps) {
+    var i, j, it, st, name, n = 0;
+    if (typeof RQItemStatus === 'undefined') return '';
+    try { n = rq.numItems; } catch (e) { return ''; }
+    for (i = 1; i <= n; i++) {
+      try {
+        it = rq.item(i);
+        st = it.status;
+        if (st !== RQItemStatus.QUEUED && st !== RQItemStatus.UNQUEUED) continue;
+        name = it.comp.name;
+      } catch (e2) { continue; }
+      for (j = 0; j < comps.length; j++) if (comps[j].name === name) return name;
+    }
+    return '';
+  }
+
+  // Plan a background render with aerender.exe: for each target comp a temporary render queue item gets
+  // 'Best Settings' + the first available output module template, frames / ext are read from it and the item is
+  // removed again; then the project is saved, since aerender renders the saved file.
+  H.planBackground = function (argsJson) {
+    var args, host = hostName(), rq, comps, aer, prefs, added = [], items = [], used = {}, i, comp, item, om, tpl, frames, queued;
+    function planFail(code, message) {
+      var r = fail(code, message);
+      delete r.files;
+      return stringify(r);
     }
     try {
-      for (i = 0; i < parked.length; i++) parked[i].render = false;
-
+      args = parse(argsJson);
+      if (host !== 'aftereffects') return planFail('exception', 'unsupportedHost: ' + host);
+      if (!app.project) return planFail('noComps');
+      rq = app.project.renderQueue;
+      if (rq.rendering) return planFail('busy');
+      if (!app.project.file) return planFail('unsavedProject');
+      aer = aeRenderBinary();
+      if (!aer) {
+        var where = '';
+        try { where = new File(Folder.appPackage.fsName + '/aerender.exe').fsName; } catch (e0) {}
+        return planFail('noAerender', where);
+      }
+      comps = H.aeTargetComps();
+      if (!comps.length) return planFail('noComps');
       for (i = 0; i < comps.length; i++) {
-        item = rq.items.add(comps[i]);
-        p = { item: item, comp: comps[i].name, path: '', template: '' };
-        plan.push(p);
-        if (contains(item.templates, 'Best Settings')) item.applyTemplate('Best Settings');
-        om = item.outputModule(1);
-        tpl = '';
-        var prefs = opts.templates || H.AE_TEMPLATES, j;
-        for (j = 0; j < prefs.length; j++) if (contains(om.templates, prefs[j])) { tpl = prefs[j]; break; }
-        if (tpl) om.applyTemplate(tpl);
-        p.template = tpl;
-        ext = aeExtFromModule(om);
-        base = uniqueName(safeName(comps[i].name), used);
-        om.file = new File(dir.fsName + sep() + base + ext);
-        p.path = om.file.fsName;
+        if (aeCompsNamed(comps[i].name) > 1) return planFail('duplicateComp', comps[i].name);
+      }
+      // before the temporary items below are added (they are queued too)
+      queued = aeQueuedComp(rq, comps);
+      if (queued) return planFail('compQueued', queued);
+      prefs = (args.templates && args.templates.length) ? args.templates : H.AE_TEMPLATES;
+
+      try {
+        for (i = 0; i < comps.length; i++) {
+          comp = comps[i];
+          item = rq.items.add(comp);
+          added.push(item);
+          if (contains(item.templates, 'Best Settings')) item.applyTemplate('Best Settings');
+          om = item.outputModule(1);
+          tpl = aePickTemplate(om, prefs);
+          if (tpl) om.applyTemplate(tpl);
+          frames = Math.round(item.timeSpanDuration / comp.frameDuration);
+          items.push({
+            comp: comp.name,
+            frames: frames >= 1 ? frames : 1,
+            fps: comp.frameRate,
+            omTemplate: tpl,
+            ext: aeExtFromModule(om),
+            baseName: uniqueName(safeName(comp.name), used)
+          });
+        }
+      } finally {
+        for (i = added.length - 1; i >= 0; i--) {
+          try { added[i].remove(); } catch (e3) {}
+        }
       }
 
-      rq.render();
-
-      for (i = 0; i < plan.length; i++) {
-        p = plan[i];
-        status = p.item.status;
-        f = new File(p.path);
-        if (status === RQItemStatus.DONE && f.exists && f.length > 0) files.push(f.fsName);
-        else errors.push('renderFailed: ' + p.comp + ' (status ' + status + ', ' + (f.exists ? f.length + ' bytes' : 'no file') + ')');
+      try {
+        app.project.save();
+      } catch (e4) {
+        return planFail('saveFailed', errText(e4));
       }
+      return stringify({
+        ok: true,
+        host: 'aftereffects',
+        projectPath: app.project.file.fsName,
+        aerenderPath: aer.fsName,
+        items: items
+      });
     } catch (e) {
-      errors.push('exception: ' + errText(e));
-    } finally {
-      for (i = plan.length - 1; i >= 0; i--) {
-        try { plan[i].item.remove(); } catch (e3) {}
-      }
-      for (i = 0; i < parked.length; i++) {
-        try { parked[i].render = true; } catch (e4) {}
-      }
+      return planFail('exception', errText(e));
     }
-    return {
-      ok: errors.length === 0 && files.length > 0,
-      host: 'aftereffects',
-      files: files,
-      errors: errors,
-      template: plan.length ? plan[0].template : ''
-    };
   };
 
   // ---------------------------------------------------------------- Premiere Pro
@@ -339,8 +422,8 @@ var MCHost = (function () {
     var args, host = hostName(), r;
     try {
       args = parse(argsJson);
-      if (host === 'aftereffects') r = H.aeRenderComps(H.aeTargetComps(), args.outDir, args);
-      else if (host === 'premiere') r = H.pproRender(args);
+      // After Effects renders in the background with aerender (planBackground + js/aerender.cjs)
+      if (host === 'premiere') r = H.pproRender(args);
       else r = fail('unsupportedHost', host);
     } catch (e) {
       r = fail('exception', errText(e));

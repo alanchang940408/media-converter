@@ -1,29 +1,38 @@
 #!/usr/bin/env node
-// npm run test:ae — automated After Effects test of the panel's render + bridge path, without the panel UI.
+// npm run test:ae — automated After Effects test of the panel's background render + bridge path, without the panel UI.
 //
-//   1. temp userData (MC_USER_DATA_DIR-style) with a synthetic bridge/info.json — the user's real bridge is untouched
+//   1. temp userData (MC_USER_DATA_DIR-style, its path has a space + CJK) with a synthetic bridge/info.json — the user's
+//      real bridge is untouched
 //   2. AfterFX.exe -r <temp>/run-ae-test.jsx → adobe/tests/ae-render-test.jsx (hard timeout, the process tree is killed if
-//      AE hangs): new project, 1920×1080 3 s comp (solid + text), rendered by MCHost.aeRenderComps
-//      (adobe/panel/jsx/host.jsx, the panel's own function) into bridge/intermediates/<id>/, project closed without
-//      saving, AE quits. AfterFX.exe -r silently ignores a script path containing a space (it starts, runs nothing and
-//      exits 0), so the paths go into a small launcher written to a space-free ASCII temp folder.
-//      When Premiere Pro is installed, the same run also checks MCHost.pproFindPreset against its install folder.
-//   3. ffprobe the intermediate (1920×1080, ~3 s)
-//   4. write inbox/<id>.json with the panel's own Node bridge module (adobe/panel/js/bridge-node.cjs: .tmp + rename),
-//      exactly as the panel does after a render, and validate it against the BridgeRequest contract
-//   5. --app only: start the built Media Converter (npm run build first; electron . with the same MC_USER_DATA_DIR), as
+//      AE hangs): a throwaway project with two 1920×1080 3 s comps ("MC Bridge Test", "測試 合成"); MCHost.planBackground
+//      (adobe/panel/jsx/host.jsx, the panel's own function) on the unsaved project → unsavedProject; the project saved
+//      into <temp>/專案 資料夾/; a duplicate comp name → duplicateComp; both comps selected → the plan. After Effects
+//      STAYS OPEN with the project, as it does for a user. AfterFX.exe -r silently ignores a script path containing a
+//      space (it starts, runs nothing and exits 0), so the paths go into a small launcher written to a space-free ASCII
+//      temp folder. When Premiere Pro is installed, the same run also checks MCHost.pproFindPreset against its folder.
+//   3. every plan item rendered by aerender through adobe/panel/js/aerender.cjs (the panel's own module) into
+//      bridge/intermediates/<id>/ while the After Effects GUI has the project open: progress never decreasing, reaching
+//      100 %, frames = planned; ffprobe 1920×1080, ~3 s. One more render is cancelled (aerender's process tree gone, the
+//      partial file deleted).
+//   4. After Effects quit through a second AfterFX.exe -r script (close the project without saving, quit)
+//   5. inbox/<id>.json written with the panel's own Node bridge module (adobe/panel/js/bridge-node.cjs: .tmp + rename)
+//      with two outputs of the same preset — the default name and a custom "{name} 自訂" — and validated against the
+//      BridgeRequest contract
+//   6. --app only: start the built Media Converter (npm run build first; electron . with the same MC_USER_DATA_DIR), as
 //      the panel does when the app is not running, and check the whole round trip: the app writes info.json, answers
-//      results/<id>.json "accepted", converts the intermediate with the requested preset and deletes it (deleteAfter)
+//      results/<id>.json "accepted" (files × outputs jobs), converts the intermediates with the per-output names and
+//      deletes them (deleteAfter)
 //   --user-data <dir> instead: attach to a Media Converter that is ALREADY running with MC_USER_DATA_DIR=<dir> (dev or
-//      built). Steps 1-4 then use <dir>/bridge as is (the app's own info.json and presets; nothing synthetic is written)
-//      and the round trip of step 5 is checked against the running app.
+//      built). Steps 1-5 then use <dir>/bridge as is (the app's own info.json and presets; nothing synthetic is written)
+//      and the round trip of step 6 is checked against the running app.
 //
-// Options: --keep (keep the temp folder), --app (step 5), --user-data <dir> (attach, see above), AE_EXE=<AfterFX.exe>,
-// AE_TEST_TIMEOUT_MS (default 180000), FFPROBE=<path>, AE_TEST_TMP=<folder> (base for the temp folder; ASCII without
-// spaces), PPRO_DIR=<Premiere Pro install folder>, AE_TEST_PRESET=<preset id> (attach mode; default h264-720p when the
-// app offers it, else its last video preset).
+// Options: --keep (keep the temp folder), --app (step 6), --user-data <dir> (attach, see above), AE_EXE=<AfterFX.exe>,
+// AE_TEST_TIMEOUT_MS (After Effects start-up + script, default 180000), AE_RENDER_TIMEOUT_MS (each aerender run, default
+// 180000), AE_QUIT_TIMEOUT_MS (default 60000), FFPROBE=<path>, AE_TEST_TMP=<folder> (base for the temp folder; ASCII
+// without spaces), PPRO_DIR=<Premiere Pro install folder>, AE_TEST_PRESET=<preset id> (attach mode; default h264-720p
+// when the app offers it, else its last video preset).
 // Refuses to run while After Effects is already open (AfterFX.exe -r would hand the script to that instance and the
-// test creates/closes projects).
+// test creates/closes projects). Only processes this test started are ever killed.
 
 import { spawn, spawnSync } from 'node:child_process'
 import fs from 'node:fs'
@@ -35,9 +44,12 @@ import { fileURLToPath } from 'node:url'
 const require = createRequire(import.meta.url)
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const bridge = require(path.join(ROOT, 'adobe', 'panel', 'js', 'bridge-node.cjs'))
+const aerender = require(path.join(ROOT, 'adobe', 'panel', 'js', 'aerender.cjs'))
 const HOST_JSX = path.join(ROOT, 'adobe', 'panel', 'jsx', 'host.jsx')
 const TEST_JSX = path.join(ROOT, 'adobe', 'tests', 'ae-render-test.jsx')
 const TIMEOUT_MS = Number(process.env.AE_TEST_TIMEOUT_MS || 180000)
+const RENDER_TIMEOUT_MS = Number(process.env.AE_RENDER_TIMEOUT_MS || 180000)
+const QUIT_TIMEOUT_MS = Number(process.env.AE_QUIT_TIMEOUT_MS || 60000)
 const KEEP = process.argv.includes('--keep')
 const WITH_APP = process.argv.includes('--app')
 /** --user-data <dir> | --user-data=<dir>: MC_USER_DATA_DIR of a Media Converter that is already running. */
@@ -51,6 +63,8 @@ function argValue(name) {
 }
 const ATTACH_USER_DATA = argValue('--user-data')
 const APP_TIMEOUT_MS = Number(process.env.APP_TEST_TIMEOUT_MS || 180000)
+const COMP_NAMES = ['MC Bridge Test', '測試 合成']
+const CUSTOM_NAME = '{name} 自訂'
 
 const results = []
 function check(name, ok, detail) {
@@ -86,6 +100,9 @@ function runningImages(name) {
     .filter((l) => l.toLowerCase().startsWith(`"${name.toLowerCase()}"`))
     .map((l) => Number(l.split('","')[1]))
 }
+
+/** aerender and the render engine it starts (AfterFX.com) — to spot what a cancel left behind. */
+const renderPids = () => [...runningImages('aerender.exe'), ...runningImages('AfterFX.com')]
 
 function findPremiereDir() {
   if (process.env.PPRO_DIR) return fs.existsSync(process.env.PPRO_DIR) ? process.env.PPRO_DIR : null
@@ -140,6 +157,20 @@ function writeLauncher(dir, cfg) {
     .join(', ')
   const src = ['// generated by scripts/test-ae.mjs', `var MC_AE_TEST = { ${fields} };`, `$.evalFile(new File(${esString(TEST_JSX)}));`, ''].join('\n')
   const file = path.join(dir, 'run-ae-test.jsx')
+  fs.writeFileSync(file, src, 'utf8')
+  return file
+}
+
+/** Writes <dir>/quit-ae-test.jsx: close the (saved) test project without saving again and quit After Effects. */
+function writeQuitScript(dir) {
+  const src = [
+    '// generated by scripts/test-ae.mjs: close the test project and quit After Effects',
+    'try { app.beginSuppressDialogs(); } catch (e) {}',
+    'try { app.project.close(CloseOptions.DO_NOT_SAVE_CHANGES); } catch (e1) {}',
+    'app.quit();',
+    ''
+  ].join('\n')
+  const file = path.join(dir, 'quit-ae-test.jsx')
   fs.writeFileSync(file, src, 'utf8')
   return file
 }
@@ -210,33 +241,61 @@ function killTree(pid) {
   spawnSync('taskkill', ['/PID', String(pid), '/T', '/F'], { windowsHide: true })
 }
 
-function runAfterEffects(aeExe, launcher, env, tmp) {
-  return new Promise((resolve) => {
-    const started = Date.now()
-    const child = spawn(aeExe, ['-r', launcher], { env, stdio: 'ignore', windowsHide: false })
-    let done = false
-    const finish = (r) => {
-      if (done) return
-      done = true
-      clearTimeout(timer)
-      resolve({ ...r, seconds: Math.round((Date.now() - started) / 1000) })
-    }
-    child.on('error', (e) => finish({ exited: false, error: e.message }))
-    child.on('exit', (code) => finish({ exited: true, code }))
-    const timer = setTimeout(() => {
-      const pids = [child.pid, ...runningImages('AfterFX.exe')]
-      const diag = diagnose(pids, path.join(tmp, 'ae-timeout.png'))
-      killTree(child.pid)
-      for (const pid of runningImages('AfterFX.exe')) killTree(pid) // none were running before the test
-      finish({ exited: false, timedOut: true, diag })
-    }, TIMEOUT_MS)
+/**
+ * Start After Effects with a script. It keeps running after the script (the test quits it in step 4). ae.pids collects
+ * the AfterFX.exe processes seen while it runs: none ran before the test and After Effects is single-instance (another
+ * launch meanwhile is handed to this one), so those - and only those - are the test's to kill.
+ */
+function startAfterEffects(aeExe, script, env) {
+  const ae = { child: null, exit: null, error: null, killed: false, started: Date.now(), pids: new Set() }
+  ae.child = spawn(aeExe, ['-r', script], { env, stdio: 'ignore', windowsHide: false })
+  ae.pids.add(ae.child.pid)
+  ae.exited = new Promise((resolve) => {
+    ae.child.on('error', (e) => {
+      ae.error = e.message
+      resolve()
+    })
+    ae.child.on('exit', (code) => {
+      ae.exit = code
+      resolve()
+    })
   })
+  ae.running = () => ae.exit === null && !ae.error && !ae.killed
+  ae.sample = () => {
+    if (ae.running()) for (const pid of runningImages('AfterFX.exe')) ae.pids.add(pid)
+  }
+  return ae
+}
+
+/** Kill the After Effects processes this test started (see startAfterEffects). */
+function killOurAfterEffects(ae) {
+  ae.sample()
+  ae.killed = true
+  for (const pid of ae.pids) killTree(pid)
+}
+
+/** The AE-side report once complete ("done": true), { exitedEarly } when AE is gone without one, null on timeout. */
+async function waitForReport(reportPath, ae, timeoutMs) {
+  return waitFor(
+    () => {
+      ae.sample()
+      try {
+        const r = JSON.parse(fs.readFileSync(reportPath, 'utf8'))
+        if (r && r.done) return r
+      } catch {
+        /* not written (completely) yet */
+      }
+      return ae.running() ? null : { exitedEarly: true }
+    },
+    timeoutMs,
+    1000
+  )
 }
 
 function ffprobe(file) {
   const r = spawnSync(
     findFfprobe(),
-    ['-v', 'error', '-show_entries', 'format=duration,format_name:stream=codec_type,codec_name,width,height', '-of', 'json', file],
+    ['-v', 'error', '-show_entries', 'format=duration,format_name:stream=codec_type,codec_name,width,height,nb_frames', '-of', 'json', file],
     { encoding: 'utf8', windowsHide: true }
   )
   if (r.status !== 0) return { error: (r.stderr || r.error?.message || 'ffprobe failed').trim() }
@@ -255,8 +314,105 @@ async function waitFor(fn, timeoutMs, intervalMs = 500) {
   }
 }
 
-/** Step 5: the built app (out/) picks up the pending inbox request, converts the intermediate and deletes it. */
-async function runAppRoundTrip({ userData, bridgeDir, id, presetId, renderedFile, outDir }) {
+const samePath = (a, b) => !!a && !!b && path.resolve(a).toLowerCase() === path.resolve(b).toLowerCase()
+
+/** One aerender run through aerender.cjs, as the panel does it (hard timeout: cancelled). */
+async function renderItem(plan, item, outputPath, cancelAtFrame = 0) {
+  const progress = []
+  const lines = []
+  const started = Date.now()
+  let timedOut = false
+  const handle = aerender.render({
+    aerenderPath: plan.aerenderPath,
+    projectPath: plan.projectPath,
+    comp: item.comp,
+    outputPath,
+    omTemplate: item.omTemplate,
+    totalFrames: item.frames,
+    onProgress: (p) => {
+      progress.push(p)
+      if (cancelAtFrame && p.frame >= cancelAtFrame) handle.cancel()
+    },
+    onLine: (l) => lines.push(l)
+  })
+  const timer = setTimeout(() => {
+    timedOut = true
+    handle.cancel()
+  }, RENDER_TIMEOUT_MS)
+  const r = await handle.promise
+  clearTimeout(timer)
+  return { r, progress, lines, timedOut, seconds: Math.round((Date.now() - started) / 100) / 10 }
+}
+
+function checkVideo(label, file, frames) {
+  const probe = ffprobe(file)
+  if (probe.error) return check(`ffprobe reads ${label}`, false, probe.error)
+  const v = (probe.streams || []).find((s) => s.codec_type === 'video')
+  const dur = Number(probe.format?.duration)
+  const size = fs.statSync(file).size
+  check(`ffprobe reads ${label}`, !!v, `${probe.format?.format_name}, ${v?.codec_name}, ${(size / 1048576).toFixed(1)} MB`)
+  check(`${label} is 1920×1080`, v && v.width === 1920 && v.height === 1080, v ? `${v.width}×${v.height}` : '')
+  check(`${label} is ~3 s`, Math.abs(dur - 3) < 0.15, `${dur} s`)
+  if (frames && v && v.nb_frames !== undefined) check(`${label} has the planned ${frames} frames`, Number(v.nb_frames) === frames, `${v.nb_frames}`)
+}
+
+/** Step 3: every plan item rendered by aerender while the After Effects GUI keeps the project open. */
+async function renderPlan(plan, interDir, ae) {
+  const rendered = []
+  for (const item of plan.items) {
+    const outputPath = path.join(interDir, item.baseName + item.ext)
+    const guiBefore = ae.running()
+    console.log(`Rendering "${item.comp}" with aerender (${item.frames} frames) …`)
+    const { r, progress, lines, timedOut, seconds } = await renderItem(plan, item, outputPath)
+    const ok = check(
+      `aerender rendered "${item.comp}"`,
+      r.ok && !timedOut,
+      timedOut ? `no result within ${RENDER_TIMEOUT_MS / 1000} s — cancelled` : r.ok ? `${seconds} s, ${progress.length} progress updates` : r.errors.join('; ')
+    )
+    check(`  … while the After Effects GUI had the project open`, guiBefore && ae.running())
+    let mono = true
+    for (let i = 1; i < progress.length; i++) if (progress[i].percent < progress[i - 1].percent || progress[i].frame < progress[i - 1].frame) mono = false
+    check('  progress never decreasing', mono && progress.length > 1, `${progress.length} updates`)
+    const last = progress[progress.length - 1] || {}
+    if (ok) check('  progress reaches 100 % with frame = planned frames', last.percent === 100 && last.frame === item.frames && last.total === item.frames, JSON.stringify(last))
+    const lineFrames = lines.map((l) => aerender.parseLine(l)).filter((p) => p && p.type === 'frame').map((p) => p.frame)
+    const maxLine = lineFrames.length ? Math.max(...lineFrames) : 0
+    // aerender sometimes leaves out the last frame's line
+    check('  aerender frame lines match the planned frames', maxLine === item.frames || maxLine === item.frames - 1, `highest (n) ${maxLine} of ${item.frames}`)
+    const withEta = progress.find((p) => typeof p.remainingMs === 'number' && p.frame < item.frames)
+    info(`first time-remaining estimate: ${withEta ? `${Math.round(withEta.remainingMs)} ms at frame ${withEta.frame}` : 'none'}`)
+    if (!ok) {
+      for (const l of lines.slice(-8)) info(l)
+      continue
+    }
+    check('  only the final file is left in the folder', fs.existsSync(outputPath) && fs.readdirSync(interDir).every((f) => rendered.includes(path.join(interDir, f)) || f === path.basename(outputPath)))
+    checkVideo(`"${path.basename(outputPath)}"`, outputPath, item.frames)
+    rendered.push(outputPath)
+  }
+  return rendered
+}
+
+/** Step 3b: a real cancel — aerender's whole process tree goes, the partial file is deleted. */
+async function cancelOnce(plan, tmp) {
+  const dir = path.join(tmp, 'cancel 測試')
+  const before = new Set(renderPids())
+  console.log('Rendering once more and cancelling at the first frame …')
+  const { r } = await renderItem(plan, plan.items[0], path.join(dir, 'cancelled.mov'), 1)
+  if (!r.cancelled) {
+    info(`render finished before the cancel took effect (ok=${r.ok}) — cancel not checked`)
+    return
+  }
+  check('cancelled render resolves { ok: false, cancelled: true }', r.ok === false && r.cancelled === true)
+  const files = fs.existsSync(dir) ? fs.readdirSync(dir) : []
+  check('cancelled render left no file', files.length === 0, files.join(', '))
+  const left = await waitFor(() => (renderPids().every((p) => before.has(p)) ? 'none' : null), 5000)
+  const extra = renderPids().filter((p) => !before.has(p))
+  // reported only: an orphan cannot be told apart from an aerender someone else started meanwhile
+  check('cancel killed aerender and its render engine', !!left, extra.length ? `still running: pids ${extra.join(', ')}` : '')
+}
+
+/** Step 6: the built app (out/) picks up the pending inbox request, converts the intermediates and deletes them. */
+async function runAppRoundTrip(opts) {
   if (!fs.existsSync(path.join(ROOT, 'out', 'main', 'index.js'))) {
     check('built app present (out/main/index.js)', false, 'run npm run build first')
     return
@@ -268,7 +424,7 @@ async function runAppRoundTrip({ userData, bridgeDir, id, presetId, renderedFile
     check('electron binary found', false, e.message)
     return
   }
-  const env = { ...process.env, MC_USER_DATA_DIR: userData, MC_NO_QUIT_CONFIRM: '1' }
+  const env = { ...process.env, MC_USER_DATA_DIR: opts.userData, MC_NO_QUIT_CONFIRM: '1' }
   delete env.ELECTRON_RUN_AS_NODE
   console.log('Starting Media Converter (built app, temp userData) …')
   const child = spawn(electronExe, [ROOT], { cwd: ROOT, env, stdio: 'ignore', windowsHide: false })
@@ -276,7 +432,7 @@ async function runAppRoundTrip({ userData, bridgeDir, id, presetId, renderedFile
   child.on('exit', (code) => (exited = code))
   child.on('error', (e) => (exited = e.message))
   try {
-    await verifyRoundTrip({ bridgeDir, id, presetId, renderedFile, outDir, appExited: () => exited })
+    await verifyRoundTrip({ ...opts, appExited: () => exited })
   } finally {
     if (exited === null) killTree(child.pid)
     await sleep(1000)
@@ -284,10 +440,11 @@ async function runAppRoundTrip({ userData, bridgeDir, id, presetId, renderedFile
 }
 
 /**
- * The app (launched by step 5, or already running in --user-data mode) answers results/<id>.json "accepted", converts
- * the intermediate into outDir and deletes it (deleteAfter). appExited() turns non-null once a launched app is gone.
+ * The app (launched by step 6, or already running in --user-data mode) answers results/<id>.json "accepted" with one job
+ * per file × output, converts the intermediates into outDir (the custom output with its own name) and deletes them
+ * (deleteAfter). appExited() turns non-null once a launched app is gone.
  */
-async function verifyRoundTrip({ bridgeDir, id, presetId, renderedFile, outDir, appExited = () => null }) {
+async function verifyRoundTrip({ bridgeDir, id, presetId, renderedFiles, outputs, outDir, appExited = () => null }) {
   const paths = bridge.bridgePaths(bridgeDir)
   const started = Date.now()
   const result = await waitFor(() => bridge.readResult(bridgeDir, id) || (appExited() !== null ? { exitedEarly: true } : null), 60000)
@@ -297,7 +454,8 @@ async function verifyRoundTrip({ bridgeDir, id, presetId, renderedFile, outDir, 
   }
   const secs = Math.round((Date.now() - started) / 1000)
   check('app answered results/<id>.json', true, `${result.status} after ${secs} s`)
-  check('request accepted with 1 job', result.status === 'accepted' && result.jobIds.length === 1, (result.errors || []).join('; '))
+  const jobs = renderedFiles.length * outputs.length
+  check(`request accepted with ${jobs} jobs (files × outputs)`, result.status === 'accepted' && result.jobIds.length === jobs, (result.errors || []).join('; '))
   check('inbox file consumed', !fs.existsSync(path.join(paths.inbox, `${id}.json`)))
   const appInfo = bridge.readInfo(bridgeDir)
   check(
@@ -307,25 +465,82 @@ async function verifyRoundTrip({ bridgeDir, id, presetId, renderedFile, outDir, 
   )
   if (result.status !== 'accepted') return
 
-  // deleteAfter: the intermediate disappears only after its job succeeded
-  const outputs = () => (fs.existsSync(outDir) ? fs.readdirSync(outDir).filter((f) => !/\.(tmp|part)$/i.test(f) && !f.startsWith('.')) : [])
-  const gone = await waitFor(() => !fs.existsSync(renderedFile) && outputs().length > 0, APP_TIMEOUT_MS, 1000)
-  const listing = outputs().join(', ') || 'nothing'
-  check('converted file written to outputDir', outputs().length === 1, listing)
-  check('intermediate deleted after the job succeeded (deleteAfter)', !!gone && !fs.existsSync(renderedFile))
-  if (outputs().length === 1) {
-    const outFile = path.join(outDir, outputs()[0])
+  // deleteAfter: an intermediate disappears only after all of its jobs succeeded
+  const converted = () => (fs.existsSync(outDir) ? fs.readdirSync(outDir).filter((f) => !/\.(tmp|part)$/i.test(f) && !f.startsWith('.')) : [])
+  const done = await waitFor(() => renderedFiles.every((f) => !fs.existsSync(f)) && converted().length >= jobs, APP_TIMEOUT_MS, 1000)
+  const list = converted()
+  check(`${jobs} converted files written to outputDir`, list.length === jobs, list.join(', ') || 'nothing')
+  check('intermediates deleted after their jobs succeeded (deleteAfter)', !!done && renderedFiles.every((f) => !fs.existsSync(f)))
+  const marker = CUSTOM_NAME.replace('{name}', '').trim()
+  const custom = list.filter((f) => f.includes(marker))
+  check(
+    `custom output name "${CUSTOM_NAME}" used once per file`,
+    custom.length === renderedFiles.length && renderedFiles.every((rf) => custom.some((f) => f.startsWith(`${path.parse(rf).name} ${marker}`))),
+    custom.join(', ') || 'none'
+  )
+  const expected = { 'h264-720p': [1280, 720], 'h264-1080p': [1920, 1080] }[presetId]
+  for (const name of list) {
+    const outFile = path.join(outDir, name)
     const probe = ffprobe(outFile)
     const v = (probe.streams || []).find((st) => st.codec_type === 'video')
     check(
-      'converted file is a valid video',
+      `converted "${name}" is a valid video`,
       !probe.error && v && Math.abs(Number(probe.format?.duration) - 3) < 0.2,
       probe.error || `${probe.format?.format_name}, ${v?.codec_name} ${v?.width}×${v?.height}, ${Number(probe.format?.duration).toFixed(2)} s`
     )
-    const expected = { 'h264-720p': [1280, 720], 'h264-1080p': [1920, 1080] }[presetId]
-    if (expected && v) check(`converted size matches ${presetId}`, v.width === expected[0] && v.height === expected[1], `${v.width}×${v.height}`)
-    info(`output: ${outFile}`)
+    if (expected && v) check(`  size matches ${presetId}`, v.width === expected[0] && v.height === expected[1], `${v.width}×${v.height}`)
   }
+  info(`outputs: ${outDir}`)
+}
+
+/** Step 2 checks on the AE-side report. Returns the plan when it can be rendered. */
+function checkReport(report, { projectPath, aeExe, pproDir }) {
+  info(`AE ${report.aeVersion}; host.jsx ${report.hostVersion}; steps: ${report.steps.join(' → ')}; "Allow Scripts to Write Files" pref: ${report.canWriteFiles ? 'on' : 'off'}`)
+  if (report.omTemplates && report.omTemplates.length) info(`AE output module templates: ${report.omTemplates.join(' | ')}`)
+  if (report.error) check('AE test script ran without an exception', false, report.error)
+  const u = report.unsaved
+  check('planBackground on an unsaved project → unsavedProject', u && u.ok === false && u.error === 'unsavedProject', u ? `${u.error}` : 'no result')
+  check('project saved into a folder with a space + CJK', samePath(report.savedAs, projectPath) && fs.existsSync(projectPath), report.savedAs)
+  const d = report.duplicate
+  check('planBackground with a duplicate comp name → duplicateComp', d && d.ok === false && d.error === 'duplicateComp' && d.message === COMP_NAMES[0], d ? `${d.error}: ${d.message}` : 'no result')
+  const p = report.plan
+  if (!check('MCHost.planBackground planned the selected comps', p && p.ok, p ? p.error ? `${p.error}: ${p.message}` : '' : 'no plan')) return null
+  check('plan: host aftereffects, the saved project', p.host === 'aftereffects' && samePath(p.projectPath, projectPath), p.projectPath)
+  check('plan: aerender.exe next to AfterFX.exe', samePath(path.dirname(p.aerenderPath), path.dirname(aeExe)) && fs.existsSync(p.aerenderPath), p.aerenderPath)
+  const items = p.items || []
+  check('plan: both comps', items.length === 2 && COMP_NAMES.every((n) => items.some((i) => i.comp === n)), items.map((i) => i.comp).join(', '))
+  for (const i of items) {
+    check(
+      `plan "${i.comp}": 90 frames at 30 fps, .mov, a template, file-name safe unique base name`,
+      i.frames === 90 && i.fps === 30 && i.ext === '.mov' && !!i.omTemplate && i.baseName === bridgeSafe(i.comp),
+      `${i.frames} frames, ${i.fps} fps, ${i.ext}, "${i.omTemplate}", "${i.baseName}"`
+    )
+  }
+  if (pproDir) {
+    const epr = report.pproPreset
+    check('MCHost.pproFindPreset finds a Premiere Pro .epr', !!epr && fs.existsSync(epr), epr || `nothing under ${pproDir}`)
+  }
+  return items.length ? p : null
+}
+
+/** host.jsx safeName for the plain names used here (no reserved characters). */
+const bridgeSafe = (name) => name.replace(/[<>:"/\\|?*\x00-\x1f]/g, '_').replace(/^\s+|[\s.]+$/g, '')
+
+/** Step 4: quit After Effects through a second AfterFX.exe -r script; kill it (ours) when that does not work. */
+async function quitAfterEffects(aeExe, launchDir, ae, env) {
+  ae.sample()
+  if (!ae.running()) return
+  const script = writeQuitScript(launchDir)
+  const started = Date.now()
+  const q = spawn(aeExe, ['-r', script], { env, stdio: 'ignore', windowsHide: false })
+  q.on('error', () => {})
+  const quit = await Promise.race([ae.exited.then(() => true), sleep(QUIT_TIMEOUT_MS).then(() => false)])
+  const secs = Math.round((Date.now() - started) / 1000)
+  if (!check('After Effects quit through a second AfterFX.exe -r script', quit, quit ? `after ${secs} s` : `still running after ${secs} s — killed`)) {
+    for (const l of diagnose([...ae.pids], path.join(launchDir, 'ae-quit-timeout.png')).split(/\r?\n/)) if (l.trim()) info(l.trim())
+    killOurAfterEffects(ae)
+  }
+  if (q.exitCode === null && q.pid) killTree(q.pid)
 }
 
 async function main() {
@@ -347,6 +562,7 @@ async function main() {
     process.exit(2)
   }
   console.log(`After Effects: ${aeExe}`)
+  const renderPidsAtStart = new Set(renderPids())
 
   // 1. temp bridge
   const tmp = fs.mkdtempSync(path.join(process.env.AE_TEST_TMP || os.tmpdir(), 'mc-ae-test-'))
@@ -357,7 +573,8 @@ async function main() {
     fs.rmSync(tmp, { recursive: true, force: true })
     process.exit(2)
   }
-  const userData = ATTACH_USER_DATA ? path.resolve(ATTACH_USER_DATA) : path.join(tmp, 'userData')
+  // spaces + CJK on purpose: real user folders (and so %APPDATA%\Media Converter\bridge) have them
+  const userData = ATTACH_USER_DATA ? path.resolve(ATTACH_USER_DATA) : path.join(tmp, 'user 資料')
   const env = { ...process.env, MC_USER_DATA_DIR: userData }
   const bridgeDir = bridge.defaultBridgeDir(env)
   check('bridge dir follows MC_USER_DATA_DIR', bridgeDir === path.join(userData, 'bridge'), bridgeDir)
@@ -384,7 +601,7 @@ async function main() {
       exePath: process.execPath,
       locale: 'zh-TW',
       updatedAt: Date.now(),
-      presets: [{ id: 'h264-1080p', kind: 'video', name: 'H.264 1080p', category: 'web', builtIn: true, summary: 'MP4 · H.264 · 1920×1080' }],
+      presets: [{ id: 'h264-1080p', kind: 'video', name: 'H.264 1080p', category: 'web', builtIn: true, summary: 'MP4 · H.264 · 1920×1080', ext: 'mp4' }],
       lastVideoPresetId: 'h264-1080p',
       defaultOutputDir: null
     }
@@ -397,110 +614,99 @@ async function main() {
   const id = bridge.newId('ae')
   const interDir = bridge.makeIntermediateDir(bridgeDir, id)
   const reportPath = path.join(tmp, 'ae-report.json')
+  const projectDir = path.join(tmp, '專案 資料夾')
+  fs.mkdirSync(projectDir)
+  const projectPath = path.join(projectDir, 'MC 測試 專案.aep')
   const pproDir = findPremiereDir()
-  const launcher = writeLauncher(launchDir, { hostJsx: HOST_JSX, outDir: interDir, report: reportPath, pproDir })
+  const launcher = writeLauncher(launchDir, { hostJsx: HOST_JSX, projectPath, report: reportPath, pproDir })
 
-  // 2. After Effects
+  // 2. After Effects: build + save the project, plan the background render; AE stays open
   console.log(`Starting After Effects (timeout ${Math.round(TIMEOUT_MS / 1000)} s) …`)
-  const ae = await runAfterEffects(aeExe, launcher, env, tmp)
-  if (ae.timedOut) {
-    check('After Effects ran the script and quit', false, `still running after ${ae.seconds} s — killed`)
-    for (const l of (ae.diag || '').split(/\r?\n/)) if (l.trim()) info(l.trim())
-  } else if (!ae.exited) {
-    check('After Effects started', false, ae.error)
-  } else {
-    check('After Effects ran the script and quit', true, `exit ${ae.code} after ${ae.seconds} s`)
+  const ae = startAfterEffects(aeExe, launcher, env)
+  let plan = null
+  let rendered = []
+  try {
+    const report = await waitForReport(reportPath, ae, TIMEOUT_MS)
+    const aeSecs = Math.round((Date.now() - ae.started) / 1000)
+    if (!report) {
+      check('After Effects ran the test script', false, `no report after ${aeSecs} s — killed`)
+      for (const l of diagnose([...ae.pids], path.join(tmp, 'ae-timeout.png')).split(/\r?\n/)) if (l.trim()) info(l.trim())
+      killOurAfterEffects(ae)
+    } else if (report.exitedEarly) {
+      check('After Effects ran the test script', false, ae.error || `After Effects exited (code ${ae.exit}) after ${aeSecs} s without a report — did it ignore -r ${launcher}?`)
+    } else {
+      check('After Effects ran the test script and stayed open', ae.running(), `report after ${aeSecs} s`)
+      plan = checkReport(report, { projectPath, aeExe, pproDir })
+    }
+
+    // 3. aerender, while the After Effects GUI has the project open
+    if (plan) {
+      rendered = await renderPlan(plan, interDir, ae)
+      await cancelOnce(plan, tmp)
+    }
+  } finally {
+    // 4. quit After Effects (also after a failure above: never leave the test's instance running)
+    await quitAfterEffects(aeExe, launchDir, ae, env)
   }
-  let leftover = runningImages('AfterFX.exe')
+  let leftover = runningImages('AfterFX.exe').filter((p) => ae.pids.has(p))
   for (let i = 0; i < 20 && leftover.length; i++) {
-    await new Promise((r) => setTimeout(r, 1000))
-    leftover = runningImages('AfterFX.exe')
+    await sleep(1000)
+    leftover = runningImages('AfterFX.exe').filter((p) => ae.pids.has(p))
   }
   if (leftover.length) {
     check('no After Effects process left behind', false, `pids ${leftover.join(', ')} — killed`)
-    for (const pid of leftover) killTree(pid)
+    for (const pid of leftover) killTree(pid) // the test's own instance (see startAfterEffects)
   }
+  const renderLeft = renderPids().filter((p) => !renderPidsAtStart.has(p))
+  check('no aerender process left behind', !renderLeft.length, renderLeft.length ? `pids ${renderLeft.join(', ')} (not killed)` : '')
 
-  // AE-side report (only written when AE allows scripts to write files)
-  let report = null
-  if (fs.existsSync(reportPath)) {
-    try {
-      report = JSON.parse(fs.readFileSync(reportPath, 'utf8'))
-    } catch (e) {
-      check('AE report readable', false, e.message)
-    }
-  }
-  if (report) {
-    check('MCHost.aeRenderComps reported ok', report.ok, report.error || (report.render && report.render.errors.join('; ')) || '')
-    if (report.render) info(`output module template: ${report.render.template || '(AE default)'}`)
-    if (report.omTemplates && report.omTemplates.length) info(`AE output module templates: ${report.omTemplates.join(' | ')}`)
-    info(`AE ${report.aeVersion}; steps: ${report.steps.join(' → ')}; "Allow Scripts to Write Files" pref: ${report.canWriteFiles ? 'on' : 'off'}`)
-    if (pproDir) {
-      const epr = report.pproPreset
-      check('MCHost.pproFindPreset finds a Premiere Pro .epr', !!epr && fs.existsSync(epr), epr || `nothing under ${pproDir}`)
-    }
-  } else if (ae.exited && fs.existsSync(interDir) && !fs.readdirSync(interDir).length) {
-    check('After Effects ran the test script', false, `no report and nothing rendered: AE ignored -r ${launcher}?`)
-  } else {
-    info('no AE-side report (the script could not write it) — judging by the rendered file only')
-  }
-
-  // 3. the intermediate
-  const rendered = fs.existsSync(interDir) ? fs.readdirSync(interDir).filter((f) => !f.startsWith('.')) : []
-  const ok3 = check('intermediate rendered into bridge/intermediates/<id>/', rendered.length === 1, rendered.join(', ') || 'nothing')
-  let renderedFile = null
-  if (ok3) {
-    renderedFile = path.join(interDir, rendered[0])
-    const size = fs.statSync(renderedFile).size
-    const probe = ffprobe(renderedFile)
-    if (probe.error) {
-      check('ffprobe reads the intermediate', false, probe.error)
-    } else {
-      const v = (probe.streams || []).find((s) => s.codec_type === 'video')
-      const dur = Number(probe.format?.duration)
-      check('ffprobe reads the intermediate', !!v, `${probe.format?.format_name}, ${v?.codec_name}, ${(size / 1048576).toFixed(1)} MB`)
-      check('intermediate is 1920×1080', v && v.width === 1920 && v.height === 1080, v ? `${v.width}×${v.height}` : '')
-      check('intermediate is ~3 s', Math.abs(dur - 3) < 0.15, `${dur} s`)
-    }
-  }
-
-  // 4. inbox request, written by the panel's own bridge module (as the panel does after the host render returns)
-  if (renderedFile) {
+  // 5. inbox request with two outputs, written by the panel's own bridge module (as the panel does after the renders)
+  if (plan && rendered.length === plan.items.length) {
     const outDir = path.join(tmp, 'out')
-    const req = bridge.buildRequest({
-      id,
-      host: 'aftereffects',
-      files: [renderedFile],
-      presetIds: [presetId],
-      outputDir: outDir,
-      deleteAfter: true,
-      start: true
-    })
-    const written = bridge.writeRequest(bridgeDir, req)
-    check('inbox/<id>.json written', written === path.join(paths.inbox, `${id}.json`) && fs.existsSync(written), path.relative(tmp, written))
-    check('no .tmp left in inbox', !fs.readdirSync(paths.inbox).some((f) => f.endsWith('.tmp')))
-    let parsed = null
+    const outputs = [
+      { presetId, nameTemplate: null },
+      { presetId, nameTemplate: CUSTOM_NAME }
+    ]
+    let req = null
     try {
-      parsed = JSON.parse(fs.readFileSync(written, 'utf8'))
+      req = bridge.buildRequest({ id, host: 'aftereffects', files: rendered, outputs, outputDir: outDir, deleteAfter: true, start: true })
     } catch (e) {
-      check('inbox file is JSON', false, e.message)
+      check('bridge-node.cjs buildRequest accepts outputs', false, e.message)
     }
-    if (parsed) {
-      const errs = bridge.validateRequest(parsed)
-      check('inbox request matches the BridgeRequest contract', errs.length === 0, errs.join('; '))
-      const insideIntermediates = parsed.files.every((f) => !path.relative(paths.intermediates, f).startsWith('..') && fs.existsSync(f))
-      check('request files exist inside bridge/intermediates/', insideIntermediates)
-      check('deleteAfter and start are true', parsed.deleteAfter === true && parsed.start === true)
-    }
+    if (req) {
+      check('request carries both outputs', JSON.stringify(req.outputs) === JSON.stringify(outputs), JSON.stringify(req.outputs))
+      check('request presetIds = the unique preset ids of the outputs (older apps)', JSON.stringify(req.presetIds) === JSON.stringify([presetId]), JSON.stringify(req.presetIds))
+      const written = bridge.writeRequest(bridgeDir, req)
+      check('inbox/<id>.json written', written === path.join(paths.inbox, `${id}.json`) && fs.existsSync(written), path.relative(tmp, written))
+      check('no .tmp left in inbox', !fs.readdirSync(paths.inbox).some((f) => f.endsWith('.tmp')))
+      let parsed = null
+      try {
+        parsed = JSON.parse(fs.readFileSync(written, 'utf8'))
+      } catch (e) {
+        check('inbox file is JSON', false, e.message)
+      }
+      if (parsed) {
+        const errs = bridge.validateRequest(parsed)
+        check('inbox request matches the BridgeRequest contract', errs.length === 0, errs.join('; '))
+        const bad = [bridge.validateRequest({ ...parsed, outputs: [] }), bridge.validateRequest({ ...parsed, outputs: [{ presetId: '' }] })]
+        check('validateRequest rejects empty / malformed outputs', bad.every((e) => e.length > 0), bad.map((e) => e.join('; ')).join(' | '))
+        const insideIntermediates = parsed.files.every((f) => !path.relative(paths.intermediates, f).startsWith('..') && fs.existsSync(f))
+        check('request files exist inside bridge/intermediates/', insideIntermediates && parsed.files.length === 2)
+        check('deleteAfter and start are true', parsed.deleteAfter === true && parsed.start === true)
+      }
 
-    // 5. the app round trip: the already running app (--user-data), or the built app started now (--app)
-    if (ATTACH_USER_DATA) {
-      await verifyRoundTrip({ bridgeDir, id, presetId, renderedFile, outDir })
-      // as the panel does: drop the answer once read; the app deletes the file only (the panel prunes old empty folders
-      // later) — tidy up the running app's bridge now
-      bridge.removeResult(bridgeDir, id)
-      if (fs.existsSync(interDir) && !fs.readdirSync(interDir).length) bridge.removeDirIfInside(interDir, paths.intermediates)
-    } else if (WITH_APP) await runAppRoundTrip({ userData, bridgeDir, id, presetId, renderedFile, outDir })
+      // 6. the app round trip: the already running app (--user-data), or the built app started now (--app)
+      const rt = { bridgeDir, id, presetId, renderedFiles: rendered, outputs, outDir, userData }
+      if (ATTACH_USER_DATA) {
+        await verifyRoundTrip(rt)
+        // as the panel does: drop the answer once read; the app deletes the files only (the panel prunes old empty
+        // folders later) — tidy up the running app's bridge now
+        bridge.removeResult(bridgeDir, id)
+        if (fs.existsSync(interDir) && !fs.readdirSync(interDir).length) bridge.removeDirIfInside(interDir, paths.intermediates)
+      } else if (WITH_APP) await runAppRoundTrip(rt)
+    }
+  } else if (ATTACH_USER_DATA && fs.existsSync(interDir)) {
+    bridge.removeDirIfInside(interDir, paths.intermediates)
   }
 
   const failed = results.filter((r) => !r.ok)

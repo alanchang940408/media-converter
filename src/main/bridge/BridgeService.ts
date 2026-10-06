@@ -5,10 +5,12 @@
 import { watch as chokidarWatch, type FSWatcher } from 'chokidar'
 import { existsSync } from 'node:fs'
 import { lstat, mkdir, readFile, readdir, realpath, rename, stat, unlink, writeFile } from 'node:fs/promises'
-import { basename, isAbsolute, join, relative, resolve, sep } from 'node:path'
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 import { BRIDGE_VERSION, type BridgeInfo, type BridgeResult } from '../../shared/bridge'
-import { classifyPath } from '../../shared/media'
-import type { AddJobsRequest, AddJobsResult, BridgeRequestEvent, Job, Preset } from '../../shared/types'
+import { baseNameOf, classifyPath, extOf } from '../../shared/media'
+import { renderNameTemplate } from '../../shared/naming'
+import type { AddJobsRequest, AddJobsResult, BridgeRequestEvent, Job, Locale, Preset, VideoPreset } from '../../shared/types'
+import { outputExtension } from '../ffmpeg/args'
 import { t, type I18nKey } from '../i18n'
 import { pathKey } from '../queue/outputPath'
 import type { SettingsAccess } from '../settings'
@@ -160,6 +162,56 @@ export async function writeJsonAtomic(path: string, data: unknown): Promise<void
 interface Handled {
   result: BridgeResult
   event: BridgeRequestEvent
+}
+
+/** One requested output after validation: a preset id and its name template (trimmed; null = app default). */
+export interface WantedOutput {
+  presetId: string
+  nameTemplate: string | null
+}
+
+/**
+ * Indexes of the outputs that would write the same file: same rendered name + extension (compared case-insensitively)
+ * in the same folder — every output of a request shares its output folder (`outDir`, or each source's own folder when
+ * null). (file, output) pairs of different sources count too: the panel's "{name}_2" for comp "X" renders the same
+ * name as "{name}" for a comp whose intermediate is "X_2". Only the files of one output never count against each
+ * other (that output's own conflict handling numbers them).
+ * Size tokens render empty and every time token renders the same instant, so names that could only differ there count
+ * as colliding (a false alarm only costs a " (1)" suffix; a miss would let one output replace or skip the other).
+ */
+export function collidingOutputs(
+  files: readonly string[],
+  outputs: readonly { preset: VideoPreset; nameTemplate: string | null }[],
+  defaultNameTemplate: string,
+  locale: Locale,
+  outDir: string | null = null,
+): Set<number> {
+  const now = new Date()
+  const owner = new Map<string, number>()
+  const colliding = new Set<number>()
+  files.forEach((file, fi) => {
+    const dirKey = pathKey(outDir ?? dirname(file))
+    outputs.forEach((o, i) => {
+      // the queue's {counter} is the file's place in the batch, the same in every output (each output adds the same
+      // files in the same order)
+      const name = renderNameTemplate(o.nameTemplate ?? defaultNameTemplate, {
+        name: baseNameOf(file),
+        ext: extOf(file),
+        preset: o.preset.names?.[locale] ?? o.preset.name,
+        parent: basename(dirname(file)),
+        counter: fi + 1,
+        now,
+      })
+      const key = `${dirKey}\n${name}.${outputExtension(o.preset.settings)}`.toLowerCase()
+      const first = owner.get(key)
+      if (first === undefined) owner.set(key, i)
+      else if (first !== i) {
+        colliding.add(first)
+        colliding.add(i)
+      }
+    })
+  })
+  return colliding
 }
 
 export class BridgeService {
@@ -428,16 +480,29 @@ export class BridgeService {
       files.push(abs)
     }
 
-    // presets: known video presets; unknown ones are reported and skipped
-    const rawIds = Array.isArray(req.presetIds) ? [...new Set(req.presetIds.filter((p): p is string => typeof p === 'string' && !!p))] : []
-    if (!rawIds.length) errors.push(this.tr('bridge.err.noPresets'))
+    // outputs: BridgeRequest.outputs (one job per file × output, each with its own name) when it has a well-formed
+    // entry, else presetIds with the request's nameTemplate (older panels)
     const locale = this.deps.settings.locale()
-    const presets: Preset[] = []
-    for (const pid of rawIds) {
-      const p = this.deps.presets.get(pid)
-      if (!p) errors.push(this.tr('bridge.err.unknownPreset', { id: pid }))
-      else if (p.kind !== 'video') errors.push(this.tr('bridge.err.notVideoPreset', { name: p.names?.[locale] ?? p.name }))
-      else presets.push(p)
+    const presetName = (p: Preset): string => p.names?.[locale] ?? p.name
+    let wanted = this.parseOutputs(req.outputs, errors)
+    if (!wanted.length) {
+      const legacyTemplate = typeof req.nameTemplate === 'string' && req.nameTemplate.trim() ? req.nameTemplate : null
+      const rawIds = Array.isArray(req.presetIds) ? [...new Set(req.presetIds.filter((p): p is string => typeof p === 'string' && !!p))] : []
+      wanted = rawIds.map((presetId) => ({ presetId, nameTemplate: legacyTemplate }))
+    }
+    if (!wanted.length) errors.push(this.tr('bridge.err.noPresets'))
+    // known video presets; unknown ones are reported (once each) and skipped
+    const outputs: { preset: VideoPreset; nameTemplate: string | null }[] = []
+    const reported = new Set<string>()
+    for (const w of wanted) {
+      const p = this.deps.presets.get(w.presetId)
+      if (p?.kind === 'video') {
+        outputs.push({ preset: p, nameTemplate: w.nameTemplate })
+        continue
+      }
+      if (reported.has(w.presetId)) continue
+      reported.add(w.presetId)
+      errors.push(p ? this.tr('bridge.err.notVideoPreset', { name: presetName(p) }) : this.tr('bridge.err.unknownPreset', { id: w.presetId }))
     }
 
     // output: an absolute folder, or null = next to the source
@@ -450,18 +515,27 @@ export class BridgeService {
       }
       outDir = resolve(d)
     }
-    const nameTemplate = typeof req.nameTemplate === 'string' && req.nameTemplate.trim() ? req.nameTemplate : null
-    if (!files.length || !presets.length) return finish([], 0)
+    if (!files.length || !outputs.length) return finish([], 0)
+
+    // Outputs that would write the same file for a source must never replace each other, whatever the user's
+    // conflict policy: the queue only keeps running jobs (and the current run) apart, so 'overwrite', 'skip' or a
+    // later run could still lose one of them. Those outputs always number their files instead ("name (1).mp4").
+    const forceRename = collidingOutputs(files, outputs, this.deps.settings.get().defaultNameTemplate, locale, outDir)
 
     const jobIds: string[] = []
+    /** pathKey(source) → every job of every output for that file (deleteAfter waits for all of them) */
     const byFile = new Map<string, { path: string; jobIds: string[] }>()
     const reportedMissing = new Set<string>()
-    for (const p of presets) {
+    for (const [i, o] of outputs.entries()) {
       try {
         const res = await this.deps.queue.addJobs({
           paths: files,
-          videoPresetId: p.id,
-          output: { dir: outDir, ...(nameTemplate ? { nameTemplate } : {}) },
+          videoPresetId: o.preset.id,
+          output: {
+            dir: outDir,
+            ...(o.nameTemplate ? { nameTemplate: o.nameTemplate } : {}),
+            ...(forceRename.has(i) ? { conflict: 'rename' as const } : {}),
+          },
         })
         for (const j of res.jobs) {
           jobIds.push(j.id)
@@ -476,7 +550,7 @@ export class BridgeService {
           errors.push(this.tr('bridge.err.fileMissing', { path: ig }))
         }
       } catch (err) {
-        errors.push(this.tr('bridge.err.addFailed', { name: p.names?.[locale] ?? p.name, message: errorMessage(err) }))
+        errors.push(this.tr('bridge.err.addFailed', { name: presetName(o.preset), message: errorMessage(err) }))
       }
     }
 
@@ -490,6 +564,33 @@ export class BridgeService {
 
     if (req.start === true && jobIds.length) this.deps.queue.start(false, jobIds)
     return finish(jobIds, byFile.size)
+  }
+
+  /**
+   * BridgeRequest.outputs → well-formed outputs (nameTemplate trimmed, empty = null), identical (preset, name) pairs
+   * once. Malformed entries — or a value that is not an array — are reported and skipped; absent / null → [].
+   */
+  private parseOutputs(raw: unknown, errors: string[]): WantedOutput[] {
+    if (raw === undefined || raw === null) return []
+    if (!Array.isArray(raw)) {
+      errors.push(this.tr('bridge.err.badOutputs'))
+      return []
+    }
+    const out: WantedOutput[] = []
+    const seen = new Set<string>()
+    raw.forEach((o: unknown, i) => {
+      const tpl = isObj(o) ? o.nameTemplate : undefined
+      if (!isObj(o) || typeof o.presetId !== 'string' || !o.presetId.trim() || !(tpl === undefined || tpl === null || typeof tpl === 'string')) {
+        errors.push(this.tr('bridge.err.badOutput', { n: i + 1 }))
+        return
+      }
+      const nameTemplate = typeof tpl === 'string' && tpl.trim() ? tpl.trim() : null
+      const key = JSON.stringify([o.presetId, nameTemplate])
+      if (seen.has(key)) return
+      seen.add(key)
+      out.push({ presetId: o.presetId, nameTemplate })
+    })
+    return out
   }
 
   // ───────────────────────────── deleteAfter ─────────────────────────────
